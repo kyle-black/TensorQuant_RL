@@ -84,14 +84,15 @@ if __name__ == "__main__":
     bar_df.to_csv('eurusd_bar_20000_1.csv', index=False)
     
     # Extract the dates from the bars DataFrame
-    bar_dates = bar_df['date'].unique()
+    #bar_dates = bar_df['date'].unique()
+    bar_dates =df['date'].unique()
     
     # List of additional assets to pull data for
     additional_assets = ['eurjpy', 'eurgbp','audjpy','audusd','gbpjpy','nzdjpy','usdcad','usdchf','usdhkd','usdjpy']
     
     # Start with the bar_df as the base merged DataFrame
-    merged_df = bar_df.copy()
-    
+    #merged_df = bar_df.copy()
+    merged_df = df.copy()
     # Loop over each additional asset, pull its data, and merge on 'date'
     for asset in additional_assets:
         asset_df = pull_new_asset_data(asset, bar_dates)
@@ -101,6 +102,7 @@ if __name__ == "__main__":
         # Merge the asset's data with the merged_df on the 'date' column.
         # Using a left join ensures that we keep all bar dates from the base.
         merged_df = pd.merge(merged_df, asset_df, on='date', how='left', suffixes=('', f'_{asset}'))
+        merged_df.drop_duplicates(inplace=True)
     
     # Optionally, sort merged_df by date (if desired)
     merged_df = merged_df.sort_values('date').reset_index(drop=True)
@@ -110,5 +112,5 @@ if __name__ == "__main__":
     print(merged_df)
     
     # Save the merged DataFrame to a CSV file
-    merged_df.to_csv('all_forex_pull_20000.csv', index=False)
+    merged_df.to_csv('model_maker/RL/data/all_forex_pull_15_min.csv', index=False)
     print("Merged bars with all assets saved to 'merged_bars_with_all_assets.csv'")
