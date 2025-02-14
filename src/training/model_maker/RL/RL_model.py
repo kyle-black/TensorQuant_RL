@@ -4,81 +4,80 @@ import pandas as pd
 from stable_baselines3 import PPO
 from gym import spaces
 from stable_baselines3.common.evaluation import evaluate_policy
+import gym
+import numpy as np
+import pandas as pd
+from stable_baselines3 import PPO
+from gym import spaces
 
 # Custom Forex Trading Environment
 class ForexEnv(gym.Env):
-    def __init__(self, data):
+    def __init__(self, data, max_steps=100000):
         super(ForexEnv, self).__init__()
         self.data = data
         self.current_step = 0
-        
+        self.max_steps = max_steps  # Limit episode length
+        self.start_step = 0  # Track where an episode started
+
         # Define state and action space
-       # self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(data.shape[1],))
         self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(data.shape[1]-1,))
         self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
 
     def reset(self):
-        self.current_step = 0
-        # Exclude the raw 'eurusd_close' from the observation
+        """Reset environment at the start of an episode."""
+        self.start_step = np.random.randint(0, len(self.data) - self.max_steps)  # Start at a random index
+        self.current_step = self.start_step
         state = self.data.iloc[self.current_step].drop(['eurusd_close']).values
         return state
-  #  '''
+
     def step(self, action):
-        if self.current_step >= len(self.data) - 15:
-            return None, 0, True, {}
-        
+        """Execute a step based on agent action."""
         current_eurusd = self.data.iloc[self.current_step]['eurusd_close']
-        past_eurusd_prices = self.data.iloc[max(0, self.current_step - 15):self.current_step]['eurusd_close']
-        
-        pct_changes = past_eurusd_prices.pct_change().dropna()
+
+        # Define future prices window
+        future_prices = self.data.iloc[self.current_step+1 : self.current_step+16]['eurusd_close']
+
+        # Compute standard deviation-based barriers
+        past_prices = self.data.iloc[max(0, self.current_step-15):self.current_step]['eurusd_close']
+        pct_changes = past_prices.pct_change().dropna()
         pct_change_std = pct_changes.std()
-        
-        amount_chg = current_eurusd * pct_change_std
+        amount_chg = current_eurusd * (2*pct_change_std)
         upper_barrier = current_eurusd + amount_chg
         lower_barrier = current_eurusd - amount_chg
-        
-        future_prices = self.data.iloc[self.current_step:self.current_step + 15]['eurusd_close']
-        
-        '''
-        hit_upper = False
-        hit_lower = False
-        
-        
+
+        # Check if price hits a barrier first
+        hit_upper = hit_lower = False
         for price in future_prices:
             if price >= upper_barrier:
-                hit_upper =True
-                hit_lower =False
+                hit_upper = True
                 break
             elif price <= lower_barrier:
                 hit_lower = True
-                hit_upper =False
                 break
-        ''' 
-        hit_upper = (future_prices >= upper_barrier).any()
-        hit_lower = (future_prices <= lower_barrier).any()
-        '''
-        if action ==0:
-            reward =100 if hit_upper == True else -100 if  hit_lower == True else 0
-        
-        elif action ==1:
-            reward =100 if hit_lower == True else -100 if  hit_upper == True else 0
-        
-        else: reward =0
-        
-        '''
+
+        # Define rewards
         reward = 0
-        if action == 0:  # Buy EURUSD
-            reward = 100 if hit_upper and not hit_lower else -100 if hit_lower and not hit_upper else 0 if hit_lower and hit_upper else 0
-        elif action == 1:  # Sell EURUSD
-            reward = 100 if hit_lower and not hit_upper else -100 if hit_upper and not hit_lower else 0 if hit_lower and hit_upper else 0
+        if action == 0 and hit_upper:  # Buy and hits upper barrier
+            reward = 1
+        elif action == 0 and hit_lower:  # Buy and hits lower barrier
+            reward = -1
         
+        elif action == 1 and hit_lower:  # Sell and hits lower barrier
+            reward = 1
+        elif action == 1 and hit_upper:  # Sell and hitupper barrier
+            reward = -1
         
-        
+        else: reward=0
+
+       
+
         self.current_step += 1
-        done = self.current_step >= len(self.data) - 15
-        next_state = self.data.iloc[self.current_step].drop(['eurusd_close']).values
-        
+        done = (self.current_step - self.start_step >= self.max_steps) or (self.current_step >= len(self.data) - 15)
+        next_state = self.data.iloc[self.current_step].drop(['eurusd_close']).values if not done else np.zeros_like(self.observation_space.shape)
+
         return next_state, reward, done, {}
+
+
  #   '''
     '''
     def step(self, action):
@@ -232,12 +231,12 @@ if __name__ == "__main__":
     # Train RL agent
     model = PPO("MlpPolicy", env, verbose=1)
   #  model.learn(total_timesteps=500000)
-
-    for i in range(5):  # Adjust based on total timesteps you want
+    print('now running new model   steps 100000 ##########')
+    for i in range(10):  # Adjust based on total timesteps you want
         model.learn(total_timesteps=100000)
-        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=2)
         print(f"Iteration {i+1}: Mean Reward: {mean_reward}, Std Reward: {std_reward}")
-        model.save("forex_model")
+        model.save("forex_model.h5")
    # mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
     #print(f"Mean Reward: {mean_reward}, Std Reward: {std_reward}")
 
