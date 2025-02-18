@@ -22,12 +22,18 @@ class ForexEnv(gym.Env):
         self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
 
     def reset(self):
-        self.start_step = np.random.randint(15, len(self.data) - self.max_steps)
+        # Calculate the upper bound for selecting a start index
+        upper_bound = len(self.data) - self.max_steps
+        if upper_bound <= 15:
+            # If data is too short relative to max_steps, just start at 15
+            self.start_step = 15
+        else:
+            self.start_step = np.random.randint(15, upper_bound)
         self.current_step = self.start_step
         self.reward_history = []
-        
         state = self._get_observation()
         return state
+
 
     def _get_observation(self):
         """Returns the last 15 timesteps as state."""
@@ -85,7 +91,9 @@ class ForexEnv(gym.Env):
 
 # Load your volume bars and create spread
 if __name__ == "__main__":
-    data = pd.read_csv("coin_df4.csv")
+    data = pd.read_csv("coin_df5.csv")
+    data_val = data.iloc[250000:]
+    data = data.iloc[:200000]
     '''
     print(data.columns)
     for i in data.columns:
@@ -110,7 +118,7 @@ if __name__ == "__main__":
     
    # data = data[['eurusd_close','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_gbpjpy_Coin' ]]
     #data['Spread'] = data['PairA_Close'] - 1.5 * data['PairB_Close']  # Example
-    data= data[['eurusd_close','eurusd_log_return','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_eurgbp_Coin','Normalized_eurusd_audjpy_Coin','Normalized_eurusd_audusd_Coin',
+    data= data[['cos_time','sin_time','eurusd_close','eurusd_log_return','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_eurgbp_Coin','Normalized_eurusd_audjpy_Coin','Normalized_eurusd_audusd_Coin',
      'Normalized_eurusd_gbpjpy_Coin','Normalized_eurusd_nzdjpy_Coin','Normalized_eurusd_usdcad_Coin','Normalized_eurusd_usdchf_Coin',
      'Normalized_eurusd_usdhkd_Coin','Normalized_eurusd_usdjpy_Coin','Normalized_eurjpy_eurgbp_Coin','Normalized_eurjpy_audjpy_Coin',
      'Normalized_eurjpy_audusd_Coin','Normalized_eurjpy_gbpjpy_Coin','Normalized_eurjpy_nzdjpy_Coin','Normalized_eurjpy_usdcad_Coin',
@@ -125,76 +133,54 @@ if __name__ == "__main__":
      'Normalized_nzdjpy_usdjpy_Coin','Normalized_usdcad_usdchf_Coin','Normalized_usdcad_usdhkd_Coin','Normalized_usdcad_usdjpy_Coin',
      'Normalized_usdchf_usdhkd_Coin','Normalized_usdchf_usdjpy_Coin','Normalized_usdhkd_usdjpy_Coin']]
 
-    # Create environment
-    env = ForexEnv(data)
+    validation_data = data.iloc[-50000:].reset_index(drop=True)
+        
+    training_data = data.iloc[:-10000].reset_index(drop=True)
 
-    # Train RL agent
-    model = PPO("MlpPolicy", env, verbose=1)
-    patience = 3  # Stop if reward doesn't improve after N evaluations
+    # Create environment
+    print("Training data shape:", training_data.shape)
+    print("Validation data shape:", validation_data.shape)
+    
+    # Create environments for training and validation
+    train_env = ForexEnv(training_data)
+    val_env = ForexEnv(validation_data)
+    
+    # Train RL agent on training environment
+    model = PPO("MlpPolicy", train_env, verbose=1)
+    patience = 3  # early stopping patience based on evaluation improvement
     best_reward = float('-inf')
     stagnant_epochs = 0
-    '''
-    for i in range(10):  # Adjust based on total timesteps you want
+    
+    for i in range(10):  # Adjust iterations/total_timesteps as needed
         model.learn(total_timesteps=100000)
         
-        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=2)
-        print(f"Iteration {i+1}: Mean Reward: {mean_reward}, Std Reward: {std_reward}")
+        # Evaluate on the training environment
+        mean_reward, std_reward = evaluate_policy(model, train_env, n_eval_episodes=4)
+        print(f"Iteration {i+1}: Mean Reward (Train): {mean_reward}, Std Reward: {std_reward}")
         
         if mean_reward > best_reward:
             best_reward = mean_reward
-            stagnant_epochs = 0  # Reset counter if reward improves
-            model.save("forex_model.h5")
+            stagnant_epochs = 0
+            model.save("forex_model2.h5")
         else:
-            stagnant_epochs += 1  # Track how long it's been stagnant
-        
+            stagnant_epochs += 1
         if stagnant_epochs >= patience:
             print(f"Early stopping triggered after {i+1} iterations. Best mean reward: {best_reward}")
             break
-    '''
-    model.learn(total_timesteps=400000)
-
-    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=2)
-
-    print(f"Mean Reward: {mean_reward}, Std Reward: {std_reward}")
-
-    model.save("forex_model.h5")
-
-
-    # Evaluate
-    total_win = 0 
-    total_reward = 0
-    total_loss = 0
-    datalen = 0
-    obs = env.reset()
-    for _ in range(0,len(data)):
+    
+    # After training, evaluate the model on the validation environment.
+    val_mean_reward, val_std_reward = evaluate_policy(model, val_env, n_eval_episodes=10)
+    print(f"Validation Mean Reward: {val_mean_reward}, Validation Reward Std: {val_std_reward}")
+    
+    # Optionally, run a custom evaluation loop on the validation environment:
+    obs = val_env.reset()
+    total_rewards = 0
+    done = False
+    while not done:
         action, _ = model.predict(obs)
-        print(f'action: {action}')
-        obs, reward, done, _ = env.step(action)
-        print(f'obs: {obs}, reward: {reward}, done: {done}, step:{_}')
-        if reward > 0:
-            total_win += 1
-        elif reward < -1.0:
-            total_loss += 1
-        else:
-            total_win += 0
-        total_reward += reward
-        print('total reward:',total_reward)
-        print('total wins:', total_win)
-        datalen += 1
-        if datalen > 0 and total_win > 0 and total_reward >0 and total_loss > 0:
-            win_ratio = total_win / datalen
-            loss_ratio = total_loss /datalen
-            print('win ratio:', win_ratio)
-            print('loss ratio:',loss_ratio)
-            
-            pp_trade = total_reward /datalen
-            print('piptrade:', pp_trade)
-        
-            print('pipwin:',total_reward/total_win )
-        
-        if done:
-            break
-       # print('tot')
+        obs, reward, done, _ = val_env.step(action)
+        total_rewards += reward
+    print("Total reward on one validation episode:", total_rewards)
     #'''
         
     ''''

@@ -11,6 +11,21 @@ class DataGather:
     def grab_raw_data(self):
         """Loads raw forex data from CSV."""
         self.raw_data = pd.read_csv('data/all_forex_pull_15_min.csv')
+        ###########  Turn time to COS and SIN data
+        period = 86400  # 24 hours
+
+        timestamps = self.raw_data['date']
+        # Compute sine and cosine
+        sin_time = np.sin(2 * np.pi * (timestamps % period) / period)
+        cos_time = np.cos(2 * np.pi * (timestamps % period) / period)
+
+        
+        
+        
+        self.raw_data['sin_time'] = sin_time
+        self.raw_data['cos_time'] = cos_time
+        
+        
         return self.raw_data
     
     def generate_combos(self):
@@ -30,6 +45,10 @@ class DataGather:
     def cointegration_spread(self):
         """Computes cointegration spread using PCA and retains log returns."""
         coint_data = []  
+
+        sin_time =self.raw_data['sin_time']
+        cos_time = self.raw_data['cos_time'] 
+
         original_closes = self.raw_data.filter(like='_close', axis=1)
         log_returns = self.raw_data.filter(like='_log_return', axis=1)  # Keep log returns
 
@@ -59,7 +78,7 @@ class DataGather:
         if coint_data:
             self.combo_df = pd.concat(coint_data, axis=1)
             # Add original close prices and log returns back into the final DataFrame
-            self.combo_df = pd.concat([self.combo_df, original_closes, log_returns], axis=1)
+            self.combo_df = pd.concat([self.combo_df, original_closes, log_returns, sin_time, cos_time], axis=1)
 
         return self.combo_df
         
@@ -74,4 +93,4 @@ if __name__ == "__main__":
     combo_df = dg.cointegration_spread()
     print(combo_df)
 
-    combo_df.to_csv('coin_df4.csv')
+    combo_df.to_csv('coin_df5.csv')
