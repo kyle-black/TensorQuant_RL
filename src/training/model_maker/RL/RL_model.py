@@ -4,188 +4,88 @@ import pandas as pd
 from stable_baselines3 import PPO
 from gym import spaces
 from stable_baselines3.common.evaluation import evaluate_policy
-import gym
-import numpy as np
-import pandas as pd
-from stable_baselines3 import PPO
-from gym import spaces
 
 # Custom Forex Trading Environment
 class ForexEnv(gym.Env):
-    def __init__(self, data, max_steps=100000):
+    def __init__(self, data, max_steps=250000):
         super(ForexEnv, self).__init__()
         self.data = data
         self.current_step = 0
         self.max_steps = max_steps  # Limit episode length
         self.start_step = 0  # Track where an episode started
+        self.reward_history = []
+        self.early_stop_patience = 50  # Number of steps to check for early stopping
+        self.early_stop_threshold = -5  # If avg reward is below this, stop early
 
-        # Define state and action space
-        self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(data.shape[1]-1,))
+        num_features = self.data.shape[1] # Excluding the label column
+        self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(15 * num_features,), dtype=np.float32)
         self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
 
     def reset(self):
-        """Reset environment at the start of an episode."""
-        self.start_step = np.random.randint(0, len(self.data) - self.max_steps)  # Start at a random index
+        self.start_step = np.random.randint(15, len(self.data) - self.max_steps)
         self.current_step = self.start_step
-        state = self.data.iloc[self.current_step].drop(['eurusd_close']).values
+        self.reward_history = []
+        
+        state = self._get_observation()
         return state
 
-    def step(self, action):
-        """Execute a step based on agent action."""
-        current_eurusd = self.data.iloc[self.current_step]['eurusd_close']
-
-        # Define future prices window
-        future_prices = self.data.iloc[self.current_step+1 : self.current_step+16]['eurusd_close']
-
-        # Compute standard deviation-based barriers
-        past_prices = self.data.iloc[max(0, self.current_step-15):self.current_step]['eurusd_close']
-        pct_changes = past_prices.pct_change().dropna()
-        pct_change_std = pct_changes.std()
-        amount_chg = current_eurusd * (2*pct_change_std)
-        upper_barrier = current_eurusd + amount_chg
-        lower_barrier = current_eurusd - amount_chg
-
-        # Check if price hits a barrier first
-        hit_upper = hit_lower = False
-        for price in future_prices:
-            if price >= upper_barrier:
-                hit_upper = True
-                break
-            elif price <= lower_barrier:
-                hit_lower = True
-                break
-
-        # Define rewards
-        reward = 0
-        if action == 0 and hit_upper:  # Buy and hits upper barrier
-            reward = 1
-        elif action == 0 and hit_lower:  # Buy and hits lower barrier
-            reward = -1
-        
-        elif action == 1 and hit_lower:  # Sell and hits lower barrier
-            reward = 1
-        elif action == 1 and hit_upper:  # Sell and hitupper barrier
-            reward = -1
-        
-        else: reward=0
-
-       
-
-        self.current_step += 1
-        done = (self.current_step - self.start_step >= self.max_steps) or (self.current_step >= len(self.data) - 15)
-        next_state = self.data.iloc[self.current_step].drop(['eurusd_close']).values if not done else np.zeros_like(self.observation_space.shape)
-
-        return next_state, reward, done, {}
-
-
- #   '''
-    '''
-    def step(self, action):
-        current_eurusd = self.data.iloc[self.current_step]['eurusd_close']
-        
-        # Compute barriers using standard deviation over the past 15 bars
-        past_prices = self.data.iloc[max(0, self.current_step - 15):self.current_step]['eurusd_close']
-        print('past prices', past_prices)
-        pct_changes = past_prices.pct_change(periods=15)
-        print('pct_changes', pct_changes)
-        pct_change_std = pct_changes.std()
-        amount_chg = current_eurusd * pct_change_std
-        upper_barrier = current_eurusd + amount_chg
-        lower_barrier = current_eurusd - amount_chg
-
-        # Find which barrier is hit first
-        future_prices = self.data.iloc[self.current_step:self.current_step + 15]['eurusd_close'].values
-        first_hit = None  # Track which barrier is hit first
-        print(future_prices)
-        print(upper_barrier)
-        print(lower_barrier)
-        for price in future_prices:
-            if price >= upper_barrier:
-                first_hit = 'upper'
-                break
-            elif price <= lower_barrier:
-                first_hit = 'lower'
-                break
-       # print(first_hit)
-        # Assign reward based on which barrier is hit first
-        reward = 0
-        if action == 0:  # Buy
-            if first_hit == 'upper':
-                reward = 10  # Profit when hitting the upper barrier first
-            elif first_hit == 'lower':
-                reward = -10  # Loss when hitting the lower barrier first
-        elif action == 1:  # Sell
-            if first_hit == 'lower':
-                reward = 10  # Profit when hitting the lower barrier first
-            elif first_hit == 'upper':
-                reward = -10  # Loss when hitting the upper barrier first
-        
-        # Small penalty if no barrier is hit within 15 steps
-       # if first_hit is None:
-        #    reward = -2  
-
-        # Move to the next step
-        self.current_step += 1
-        done = self.current_step >= len(self.data) - 15
-        next_state = self.data.iloc[self.current_step].drop(['eurusd_close']).values
-        
-        return next_state, reward, done, {}
-    '''
-    '''
-    def step(self, action):
-        # Compute immediate reward as before
-
-        past_eurusd_prices = self.data.iloc[self.current_step:self.current_step - 15]['eurusd_close']
-        pct_changes = past_eurusd_prices.pct_change(15)
-        pct_change_std = pct_changes.std()
-        current_eurusd = self.data.iloc[self.current_step]['eurusd_close']
-        amount_chg =current_eurusd * pct_change_std
-        upper_barrier = current_eurusd + amount_chg
-        lower_barrier = current_eurusd - amount_chg
-
-        self.data.iloc[self.current_step:self.current_step + 15]['eurusd_close']
-
-      #  future_eurusd = self.data.iloc[self.current_step + 5]['eurusd_close']
-
-      # current_eurgbp = self.data.iloc[self.current_step]['eurgbp_close']
-       # future_eurgbp = self.data.iloc[self.current_step + 5]['eurgbp_close']
-
-       # eurgbp_prices = self.data.iloc[self.current_step+5:self.current_step + 15]['eurgbp_close']
-       # future_eurgbp = eurgbp_prices.mean() 
-       
-       
-       # prices = self.data.iloc[self.current_step:self.current_step + 5]['eurusd_close']
-       # max_drawdown = (prices.max() - prices.min()) * 10000
-        reward = 0
-        if action == 0:  # Buy EURUSD
-            reward = (future_eurusd - current_eurusd) * 10000
-        elif action == 1:  # Sell EURUSD
-            reward = (current_eurusd - future_eurusd) * 10000
-       # elif action == 2:  # Sell GPBUSD
-        #    reward = (current_eurgbp - future_eurgbp) * 10000
-       # elif action == 3:  # buy GPBUSD
-        #    reward = ( future_eurgbp -current_eurgbp ) * 10000
-        # Suppose we also track the max drawdown in the next 5 steps as a risk metric
-       # prices = self.data.iloc[self.current_step:self.current_step + 5]['eurusd_close']
-      #  max_drawdown = (prices.max() - prices.min()) * 10000
-
-        # Combine profit and risk: reward = profit - penalty * (drawdown)
-       # risk_penalty = 0.5  # adjust this weight
-       # reward = reward - risk_penalty * max_drawdown
-
-        self.current_step += 1
-        done = self.current_step >= len(self.data) - 15
-        next_state = self.data.iloc[self.current_step].drop(['eurusd_close']).values
-        return next_state, reward, done, {}
-    '''
+    def _get_observation(self):
+        """Returns the last 15 timesteps as state."""
+        start = max(0, self.current_step - 14)  # Ensure we don't go below index 0
+        obs = self.data.iloc[start:self.current_step+1].values
+        obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')  # Pad if less than 15 steps
+        return obs.flatten()  # Convert to 1D
 
     
+    def step(self, action):
+        """Execute a step based on agent action."""
+        if self.current_step >= len(self.data) - 16:
+            return np.zeros(self.observation_space.shape), 0, True, {}
 
+        current_close = self.data.iloc[self.current_step]['eurusd_close']
+        future_prices = self.data.iloc[self.current_step+1 : self.current_step+16]['eurusd_close'].values
+        future_mean_price = future_prices.mean()
+        price_diff = future_mean_price - current_close
+
+        # Reward logic
+        reward = 0
+        if action == 0:  # Buy
+            reward = price_diff * 10000  # Convert to pips
+        elif action == 1:  # Sell
+            reward = -price_diff * 10000  # Profit from price drops
+
+        # Reward small penalty for holding
+        elif action == 2:  # Hold
+            reward = -0.1  
+
+        # Track rewards
+        self.reward_history.append(reward)
+        if len(self.reward_history) > self.early_stop_patience:
+            self.reward_history.pop(0)
+
+        # Check stopping conditions
+        avg_reward = np.mean(self.reward_history) if self.reward_history else 0
+        done = (len(self.reward_history) == self.early_stop_patience and avg_reward < self.early_stop_threshold) or \
+            (self.current_step - self.start_step >= self.max_steps) or \
+            (self.current_step >= len(self.data) - 15)
+
+        self.current_step += 1
+        next_state = self._get_observation() if not done else np.zeros(self.observation_space.shape)
+
+        return next_state, reward, done, {}
+
+
+       
+
+       
+
+ #   '''
+    
 
 
 # Load your volume bars and create spread
 if __name__ == "__main__":
-    data = pd.read_csv("coin_df3.csv")
+    data = pd.read_csv("coin_df4.csv")
     '''
     print(data.columns)
     for i in data.columns:
@@ -210,7 +110,7 @@ if __name__ == "__main__":
     
    # data = data[['eurusd_close','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_gbpjpy_Coin' ]]
     #data['Spread'] = data['PairA_Close'] - 1.5 * data['PairB_Close']  # Example
-    data= data[['eurusd_close','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_eurgbp_Coin','Normalized_eurusd_audjpy_Coin','Normalized_eurusd_audusd_Coin',
+    data= data[['eurusd_close','eurusd_log_return','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_eurgbp_Coin','Normalized_eurusd_audjpy_Coin','Normalized_eurusd_audusd_Coin',
      'Normalized_eurusd_gbpjpy_Coin','Normalized_eurusd_nzdjpy_Coin','Normalized_eurusd_usdcad_Coin','Normalized_eurusd_usdchf_Coin',
      'Normalized_eurusd_usdhkd_Coin','Normalized_eurusd_usdjpy_Coin','Normalized_eurjpy_eurgbp_Coin','Normalized_eurjpy_audjpy_Coin',
      'Normalized_eurjpy_audusd_Coin','Normalized_eurjpy_gbpjpy_Coin','Normalized_eurjpy_nzdjpy_Coin','Normalized_eurjpy_usdcad_Coin',
@@ -230,15 +130,35 @@ if __name__ == "__main__":
 
     # Train RL agent
     model = PPO("MlpPolicy", env, verbose=1)
-  #  model.learn(total_timesteps=500000)
-    print('now running new model   steps 100000 ##########')
+    patience = 3  # Stop if reward doesn't improve after N evaluations
+    best_reward = float('-inf')
+    stagnant_epochs = 0
+    '''
     for i in range(10):  # Adjust based on total timesteps you want
         model.learn(total_timesteps=100000)
+        
         mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=2)
         print(f"Iteration {i+1}: Mean Reward: {mean_reward}, Std Reward: {std_reward}")
-        model.save("forex_model.h5")
-   # mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
-    #print(f"Mean Reward: {mean_reward}, Std Reward: {std_reward}")
+        
+        if mean_reward > best_reward:
+            best_reward = mean_reward
+            stagnant_epochs = 0  # Reset counter if reward improves
+            model.save("forex_model.h5")
+        else:
+            stagnant_epochs += 1  # Track how long it's been stagnant
+        
+        if stagnant_epochs >= patience:
+            print(f"Early stopping triggered after {i+1} iterations. Best mean reward: {best_reward}")
+            break
+    '''
+    model.learn(total_timesteps=400000)
+
+    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=2)
+
+    print(f"Mean Reward: {mean_reward}, Std Reward: {std_reward}")
+
+    model.save("forex_model.h5")
+
 
     # Evaluate
     total_win = 0 
@@ -253,7 +173,7 @@ if __name__ == "__main__":
         print(f'obs: {obs}, reward: {reward}, done: {done}, step:{_}')
         if reward > 0:
             total_win += 1
-        elif reward < 0:
+        elif reward < -1.0:
             total_loss += 1
         else:
             total_win += 0
