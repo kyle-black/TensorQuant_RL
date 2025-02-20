@@ -46,17 +46,21 @@ class ForexEnv(gym.Env):
             return np.zeros(self.observation_space.shape), 0, True, {}
 
         current_close = self.data.iloc[self.current_step]['eurusd_close']
-        future_prices = self.data.iloc[self.current_step+1 : self.current_step+16]['eurusd_close'].values
+        future_prices = self.data.iloc[self.current_step+1 : self.current_step+16]['eurusd_log_return'].values
         future_mean_price = future_prices.mean()
-        price_diff = future_mean_price - current_close
+        #price_diff = future_mean_price - current_close
 
         reward = 0
         if action == 0:  # Buy
-            reward = price_diff * 10000
+            if future_mean_price > 0:
+                reward =1
+            else: reward =-1
         elif action == 1:  # Sell
-            reward = -price_diff * 10000
+            if future_mean_price < 0:
+                reward = 1
+            else: reward =-1
         elif action == 2:  # Hold
-            reward = -0.1
+            reward = 0.0
 
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -81,15 +85,10 @@ class ForexTradingModel:
     def train_and_evaluate_single(self, train_data, val_data, params):
         train_env = ForexEnv(train_data)
         val_env = ForexEnv(val_data)
-        activation_map = {
-        'tanh': torch.nn.Tanh,
-        'relu': torch.nn.ReLU
-    }
-        policy_kwargs = dict(activation_fn=activation_map[params['activation_fn']], 
-                         net_arch=[params['n_layers'] * [params['n_neurons']]])
+        
         
         self.model = PPO("MlpPolicy", train_env, verbose=0,
-                         policy_kwargs=policy_kwargs,
+                         
                          learning_rate=params['learning_rate'],
                          n_steps=params['n_steps'],
                          batch_size=params['batch_size'],
@@ -181,7 +180,8 @@ class ForexTradingModel:
         logging.info(f"Best value: {study.best_value}")
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df5.csv')
+    data = pd.read_csv('coin_df6.csv')
+    data.dropna(inplace=True)
     data= data[['cos_time','sin_time','eurusd_close','eurusd_log_return','Normalized_eurusd_eurjpy_Coin','Normalized_eurusd_eurgbp_Coin','Normalized_eurusd_audjpy_Coin','Normalized_eurusd_audusd_Coin',
      'Normalized_eurusd_gbpjpy_Coin','Normalized_eurusd_nzdjpy_Coin','Normalized_eurusd_usdcad_Coin','Normalized_eurusd_usdchf_Coin',
      'Normalized_eurusd_usdhkd_Coin','Normalized_eurusd_usdjpy_Coin','Normalized_eurjpy_eurgbp_Coin','Normalized_eurjpy_audjpy_Coin',
@@ -195,9 +195,9 @@ if __name__ == "__main__":
      'Normalized_gbpjpy_nzdjpy_Coin','Normalized_gbpjpy_usdcad_Coin','Normalized_gbpjpy_usdchf_Coin','Normalized_gbpjpy_usdhkd_Coin',
      'Normalized_gbpjpy_usdjpy_Coin','Normalized_nzdjpy_usdcad_Coin','Normalized_nzdjpy_usdchf_Coin','Normalized_nzdjpy_usdhkd_Coin',
      'Normalized_nzdjpy_usdjpy_Coin','Normalized_usdcad_usdchf_Coin','Normalized_usdcad_usdhkd_Coin','Normalized_usdcad_usdjpy_Coin',
-     'Normalized_usdchf_usdhkd_Coin','Normalized_usdchf_usdjpy_Coin','Normalized_usdhkd_usdjpy_Coin']]
+     'Normalized_usdchf_usdhkd_Coin','Normalized_usdchf_usdjpy_Coin','Normalized_usdhkd_usdjpy_Coin','RSI','%K','%D','direction','tenkan_sen','kijun_sen','senkou_span_a','senkou_span_b','chikou_span']]
     trader = ForexTradingModel(data)
     trader.optimize(n_trials=50)  # Adjust the number of trials based on your computational resources
 
     # Optionally, you can then train with the best parameters found:
-    best_params = study.best_params
+    #best_params = study.best_params

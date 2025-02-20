@@ -4,7 +4,7 @@ import pandas as pd
 from stable_baselines3 import PPO
 from gym import spaces
 from stable_baselines3.common.evaluation import evaluate_policy
-
+SEED = 42
 # Custom Forex Trading Environment
 class ForexEnv(gym.Env):
     def __init__(self, data, max_steps=250000):

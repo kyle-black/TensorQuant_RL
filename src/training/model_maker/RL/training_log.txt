@@ -12,3 +12,42 @@
 2025-02-18 12:53:42,750 - Fold 3: Mean Reward: 66.95333461482078, Std Reward: 579.7936537142581, Performance: {'total_reward': np.float64(-519.1933333333659), 'trades': 378, 'win_rate': 0.42857142857142855, 'max_drawdown': np.float64(519.7666666666972), 'sharpe_ratio': np.float64(-5.101070742421552)}
 2025-02-18 12:56:47,976 - Fold 4: Mean Reward: 67.52133345808879, Std Reward: 634.2567227269444, Performance: {'total_reward': np.float64(-380.6800000001351), 'trades': 1362, 'win_rate': 0.5073421439060205, 'max_drawdown': np.float64(739.193333333377), 'sharpe_ratio': np.float64(-3.0737304511574695)}
 2025-02-18 13:00:05,062 - Fold 5: Mean Reward: -235.64400747902693, Std Reward: 251.05082122772475, Performance: {'total_reward': np.float64(-433.22000000000685), 'trades': 159, 'win_rate': 0.5157232704402516, 'max_drawdown': np.float64(574.606666666675), 'sharpe_ratio': np.float64(-2.571480633972983)}
+2025-02-18 14:32:28,892 - Fold 1: Mean Reward: -291.61999583486374, Std Reward: 197.83866498455006, Performance: {'total_reward': 416.36666666670874, 'trades': 1364, 'win_rate': 0.5080645161290323, 'max_drawdown': 1209.1800000000137, 'sharpe_ratio': 1.4191097132205142}
+2025-02-18 14:37:16,402 - Fold 2: Mean Reward: -67.34398556947663, Std Reward: 502.11410038020625, Performance: {'total_reward': -277.92666666659153, 'trades': 284, 'win_rate': 0.5352112676056338, 'max_drawdown': 735.0866666666305, 'sharpe_ratio': -1.9416528089926266}
+2025-02-18 14:43:33,664 - Fold 3: Mean Reward: -37.62800554428204, Std Reward: 494.58126466974255, Performance: {'total_reward': 215.05333333340533, 'trades': 1766, 'win_rate': 0.49943374858437145, 'max_drawdown': 696.27999999998, 'sharpe_ratio': 1.4372290365188705}
+2025-02-18 14:50:53,277 - Fold 4: Mean Reward: -99.96532723121345, Std Reward: 372.43579144523954, Performance: {'total_reward': 396.27333333331006, 'trades': 1768, 'win_rate': 0.5090497737556561, 'max_drawdown': 530.8800000000133, 'sharpe_ratio': 3.5148964809073986}
+2025-02-18 14:56:43,905 - Fold 5: Mean Reward: 383.938668287545, Std Reward: 690.5341897708533, Performance: {'total_reward': 1596.1600000000715, 'trades': 1749, 'win_rate': 0.5231560891938251, 'max_drawdown': 1584.626666666733, 'sharpe_ratio': 4.526135415881592}
+2025-02-18 15:12:27,186 - Mean Reward: 26.679999387077988
+2025-02-18 15:12:27,188 - Performance Metrics: {'total_reward': 122.27999999996045, 'trades': 1582, 'win_rate': 0.49810366624525915, 'max_drawdown': 326.91333333332045, 'sharpe_ratio': 1.981321788361902}
+2025-02-18 17:16:16,567 - Mean Reward: 58.06266175173223
+2025-02-18 17:16:16,575 - Performance Metrics: {'total_reward': -941.0733333333901, 'trades': 1165, 'win_rate': 0.4738197424892704, 'max_drawdown': 1074.2333333333863, 'sharpe_ratio': -3.6537480004680227}
+2025-02-18 18:15:46,535 - Mean Reward: -174.36532973516734
+2025-02-18 18:15:46,541 - Performance Metrics: {'total_reward': 505.3933333333387, 'trades': 1796, 'win_rate': 0.5133630289532294, 'max_drawdown': 643.3866666666589, 'sharpe_ratio': 3.6391808474900467}
+2025-02-18 18:55:00,657 - Mean Reward: -24.0826719058682
+2025-02-18 18:55:00,658 - Performance Metrics: {'total_reward': 418.4066666666833, 'trades': 1627, 'win_rate': 0.5261216963736939, 'max_drawdown': 981.5866666667255, 'sharpe_ratio': 2.096824968474144}
+2025-02-18 20:58:41,776 - Mean Reward: -15.993072676658704
+2025-02-18 20:58:41,783 - Performance Metrics: {'total_reward': 5.035596371182476, 'trades': 1546, 'win_rate': 0.5077619663648124, 'max_drawdown': 97.38045990944426, 'sharpe_ratio': 0.20248960319722323}
+2025-02-18 21:09:14,403 - Mean Reward: -0.0015404315243813427
+2025-02-18 21:09:14,408 - Performance Metrics: {'total_reward': -0.001134196847735573, 'trades': 1363, 'win_rate': 0.4944974321349963, 'max_drawdown': 0.009626285475523771, 'sharpe_ratio': -0.47186458407269716}
+2025-02-19 09:51:24,046 - Mean Reward: 31.6
+2025-02-19 09:51:24,053 - Performance Metrics: {'total_reward': 52.0, 'trades': 1662, 'win_rate': 0.5156438026474127, 'max_drawdown': 96.0, 'sharpe_ratio': 2.736980890795371}
+2025-02-19 10:13:38,065 - Mean Reward: -18.6
+2025-02-19 10:13:38,074 - Performance Metrics: {'total_reward': -9.0, 'trades': 1763, 'win_rate': 0.497447532614861, 'max_drawdown': 60.0, 'sharpe_ratio': -0.673068504100683}
+2025-02-19 13:19:38,483 - Mean Reward: -14.2
+2025-02-19 13:19:38,489 - Performance Metrics: {'total_reward': 18.0, 'trades': 2362, 'win_rate': 0.5038103302286198, 'max_drawdown': 195.0, 'sharpe_ratio': 0.374039200084243}
+2025-02-19 14:06:05,178 - Mean Reward: 2.0
+2025-02-19 14:06:05,186 - Performance Metrics: {'total_reward': 37.0, 'trades': 2445, 'win_rate': 0.020858895705521473, 'max_drawdown': 37.0, 'sharpe_ratio': 2.68292558072356}
+2025-02-19 16:00:10,086 - Mean Reward: -2.0
+2025-02-19 16:00:10,091 - Performance Metrics: {'total_reward': 7, 'trades': 2501, 'win_rate': 0.011195521791283487, 'max_drawdown': 20, 'sharpe_ratio': 1.1148858636118097}
+2025-02-19 16:41:42,083 - Mean Reward: 7.0
+2025-02-19 16:41:42,089 - Performance Metrics: {'total_reward': 10, 'trades': 2501, 'win_rate': 0.013194722111155539, 'max_drawdown': 17, 'sharpe_ratio': 2.05611014772296}
+2025-02-20 13:41:27,620 - Mean Reward: 9.4
+2025-02-20 13:41:27,627 - Performance Metrics: {'total_reward': 14, 'trades': 2501, 'win_rate': 0.0075969612155137945, 'max_drawdown': 14, 'sharpe_ratio': 2.983390649264477}
+2025-02-20 14:11:50,031 - Mean Reward: -250.0000037252903
+2025-02-20 14:11:50,035 - Performance Metrics: {'total_reward': -249.99999999999008, 'trades': 0, 'win_rate': 0, 'max_drawdown': 249.8999999999901, 'sharpe_ratio': -3.464101892265937}
+2025-02-20 14:41:17,364 - Mean Reward: 0.0
+2025-02-20 14:41:17,369 - Performance Metrics: {'total_reward': 0, 'trades': 0, 'win_rate': 0, 'max_drawdown': 0, 'sharpe_ratio': nan}
+2025-02-20 15:01:35,713 - Mean Reward: 0.0
+2025-02-20 15:01:35,717 - Performance Metrics: {'total_reward': -1, 'trades': 1, 'win_rate': 0.0, 'max_drawdown': 1, 'sharpe_ratio': -2.0217837600649085}
+2025-02-20 15:32:05,290 - Mean Reward: -125.00000186264515
+2025-02-20 15:32:05,298 - Performance Metrics: {'total_reward': -124.99999999999504, 'trades': 0, 'win_rate': 0, 'max_drawdown': 124.94999999999504, 'sharpe_ratio': -3.464101892265937}
