@@ -137,6 +137,7 @@ class TradingSimulator:
             pips_gained = (self.entry_price - exit_price) * 10000
         profit = pips_gained * self.position_size * 10
         self.balance += profit
+        print(f'current balance {self.balance}')
         self.trades.append({
             'direction': self.active_trade,
             #'entry_step': self.entry_step,
@@ -147,7 +148,7 @@ class TradingSimulator:
             'profit': profit,
             'reason': reason
         })
-        print(self.trades)
+    
         self.active_trade = None
         self.entry_price = None
         self.tp_price = None
