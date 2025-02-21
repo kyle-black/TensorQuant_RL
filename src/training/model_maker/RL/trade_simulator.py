@@ -5,11 +5,11 @@ import torch
 import random
 
 # Load the trained model
-model_path = "ppo_forex_model.zip"  # Update with your actual model path
+model_path = "ppo_forex_model.zip"  # Corrected path
 model = PPO.load(model_path)
 
 # Load and prepare test data (last 15%)
-data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
+data = pd.read_csv('coin_df6.csv')  # Corrected path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
@@ -25,6 +25,9 @@ exp2 = test_data['eurusd_log_return'].ewm(span=26, adjust=False).mean()
 test_data['macd'] = exp1 - exp2
 test_data['macd_signal'] = test_data['macd'].ewm(span=9, adjust=False).mean()
 test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
+
+# Clean NaN or inf values
+test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
 
 # Select training columns
 test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
@@ -54,9 +57,9 @@ class TradingSimulator:
     def __init__(self, data, initial_balance=10000, position_size=0.1, spread_pips=2, slippage_std_pips=0.5):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
-        self.position_size = position_size  # In lots (e.g., 0.1 lots = $1 per pip)
+        self.position_size = position_size
         self.spread_pips = spread_pips
-        self.slippage_std_pips = slippage_std_pips  # Standard deviation of slippage in pips
+        self.slippage_std_pips = slippage_std_pips
         self.balance = initial_balance
         self.equity_curve = []
         self.trades = []
@@ -69,8 +72,11 @@ class TradingSimulator:
     def get_observation(self):
         start = max(0, self.current_step - 14)
         obs = self.data.iloc[start:self.current_step+1].values
-        obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
+        if len(obs) < 15:
+            obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant', constant_values=0)
         obs = obs.flatten().astype(np.float32)
+        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
+            obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
         return obs
 
     def step(self):
@@ -78,6 +84,7 @@ class TradingSimulator:
             return False
 
         obs = self.get_observation()
+        print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
         action, _ = model.predict(obs)
 
         if self.active_trade is None:
@@ -97,8 +104,7 @@ class TradingSimulator:
     def enter_trade(self, direction):
         self.active_trade = direction
         current_price = self.data.iloc[self.current_step]['eurusd_close']
-        # Simulate slippage at entry
-        slippage = np.random.normal(0, self.slippage_std_pips) / 10000  # Convert pips to price units
+        slippage = np.random.normal(0, self.slippage_std_pips) / 10000
         self.entry_price = current_price + slippage if direction == 'buy' else current_price - slippage
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
@@ -115,7 +121,6 @@ class TradingSimulator:
 
     def check_exit(self, direction):
         current_price = self.data.iloc[self.current_step]['eurusd_close']
-        # Simulate slippage at exit
         slippage = np.random.normal(0, self.slippage_std_pips) / 10000
         effective_price = current_price - slippage if direction == 'buy' else current_price + slippage
         
@@ -140,7 +145,6 @@ class TradingSimulator:
         print(f'current balance {self.balance}')
         self.trades.append({
             'direction': self.active_trade,
-            #'entry_step': self.entry_step,
             'exit_step': self.current_step,
             'entry_price': self.entry_price,
             'exit_price': exit_price,
@@ -148,7 +152,6 @@ class TradingSimulator:
             'profit': profit,
             'reason': reason
         })
-    
         self.active_trade = None
         self.entry_price = None
         self.tp_price = None
