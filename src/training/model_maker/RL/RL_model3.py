@@ -7,8 +7,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import logging
 import torch
 
-# Configure logging
-logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class ForexEnv(gym.Env):
     def __init__(self, data, max_steps=2500):
@@ -22,7 +21,7 @@ class ForexEnv(gym.Env):
         self.early_stop_threshold = -0.5
         num_features = self.data.shape[1]
         self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(15 * num_features,), dtype=np.float32)
-        self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
+        self.action_space = spaces.Discrete(3)
 
     def reset(self):
         upper_bound = len(self.data) - self.max_steps
@@ -37,7 +36,6 @@ class ForexEnv(gym.Env):
         obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
         obs = obs.flatten().astype(np.float32)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # Return as NumPy array after moving to CPU
         return torch.tensor(obs, device=device).cpu().numpy()
 
     def step(self, action):
@@ -46,17 +44,17 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        upper_barrier = 0.5 * past_std
-        lower_barrier = -0.5 * past_std
+        upper_barrier = 0.25 * past_std  # Lowered from 0.5
+        lower_barrier = -0.25 * past_std
         
         future_log_return = self.data.iloc[self.current_step + 1]['eurusd_log_return']
         
         if action == 0:  # Buy
-            reward = 1 if future_log_return > upper_barrier else -1
+            reward = 2 if future_log_return > upper_barrier else -1
         elif action == 1:  # Sell
-            reward = 1 if future_log_return < lower_barrier else -1
+            reward = 2 if future_log_return < lower_barrier else -1
         elif action == 2:  # Hold
-            reward = -0.05
+            reward = -0.01  # Reduced penalty
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -85,17 +83,19 @@ class ForexTradingModel:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}")
         
+        policy_kwargs = dict(net_arch=[256, 256])  # Larger network
         self.model = PPO("MlpPolicy", train_env, verbose=1,
                          learning_rate=0.001,
                          n_steps=1024,
-                         batch_size=256,  # Factor of 1024
+                         batch_size=256,
                          n_epochs=3,
                          gamma=0.94,
                          clip_range=0.3,
-                         ent_coef=0.05,
-                         device=device)  # Use GPU if available
+                         ent_coef=0.1,  # Increased exploration
+                         device=device,
+                         policy_kwargs=policy_kwargs)
         
-        self.model.learn(total_timesteps=600000)
+        self.model.learn(total_timesteps=1000000)  # Increased to 1M
         
         mean_reward, std_reward = evaluate_policy(self.model, val_env, n_eval_episodes=5)
         performance = self.evaluate_trading_performance(self.model, val_env)
@@ -143,10 +143,11 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')
+    data = pd.read_csv('/mnt/coin_df6.csv')
     
     data['log_return_std'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
+    data['log_return_std_long'] = data['eurusd_log_return'].rolling(window=50, min_periods=1).std()
     data['bb_middle'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
     data['bb_upper'] = data['bb_middle'] + 2 * data['log_return_std']
     data['bb_lower'] = data['bb_middle'] - 2 * data['log_return_std']
@@ -154,10 +155,11 @@ if __name__ == "__main__":
     exp2 = data['eurusd_log_return'].ewm(span=26, adjust=False).mean()
     data['macd'] = exp1 - exp2
     data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
+    data['macd_diff'] = data['macd'] - data['macd_signal']
     
     data.dropna(inplace=True)
     
-    data = data[['log_return_mean', 'log_return_std', 'bb_upper', 'bb_lower', 'macd', 'macd_signal',
+    data = data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
                  'cos_time', 'sin_time', 'eurusd_close', 'eurusd_log_return',
                  'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
                  'Normalized_eurusd_audusd_Coin', 'Normalized_eurusd_gbpjpy_Coin', 'Normalized_eurusd_nzdjpy_Coin',
