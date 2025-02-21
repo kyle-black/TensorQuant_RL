@@ -8,6 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 import logging
 import torch
 
+# Configure logging (updated path to match your /mnt setup)
 logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class EntropyDecayCallback(BaseCallback):
@@ -60,13 +61,13 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        upper_barrier = 0.03 * past_std  # Further lowered
+        upper_barrier = 0.03 * past_std
         lower_barrier = -0.03 * past_std
         
         future_log_return = self.data.iloc[self.current_step + 1]['eurusd_log_return']
         
         if action == 0:  # Buy
-            reward = 2 if future_log_return > upper_barrier else -0.5  # Reduced penalty
+            reward = 2 if future_log_return > upper_barrier else -0.5
             self.trades += 1
         elif action == 1:  # Sell
             reward = 2 if future_log_return < lower_barrier else -0.5
@@ -74,7 +75,7 @@ class ForexEnv(gym.Env):
         elif action == 2:  # Hold
             reward = 0 if abs(future_log_return) < past_std else -0.01
         
-        if self.trades > 500:  # Stricter cap
+        if self.trades > 500:
             reward -= 0.2
         
         self.reward_history.append(reward)
@@ -109,15 +110,20 @@ class ForexTradingModel:
                          learning_rate=0.001,
                          n_steps=1024,
                          batch_size=256,
-                         n_epochs=10,  # Increased for better value updates
+                         n_epochs=10,
                          gamma=0.94,
                          clip_range=0.3,
-                         ent_coef=0.5,  # Initial value, decayed via callback
+                         ent_coef=0.5,
                          device=device,
                          policy_kwargs=policy_kwargs)
         
         callback = EntropyDecayCallback()
         self.model.learn(total_timesteps=3000000, callback=callback)
+        
+        # Save the model after training
+        model_save_path = "ppo_forex_model.zip"  # Path on your Vultr instance
+        self.model.save(model_save_path)
+        print(f"Model saved to {model_save_path}")
         
         mean_reward, std_reward = evaluate_policy(self.model, val_env, n_eval_episodes=5)
         performance = self.evaluate_trading_performance(self.model, val_env)
@@ -165,7 +171,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')
+    data = pd.read_csv('coin_df6.csv')  # Updated path to match your /mnt setup
     
     data['log_return_std'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
