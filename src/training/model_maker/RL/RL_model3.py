@@ -7,7 +7,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import logging
 import torch
 
-logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class ForexEnv(gym.Env):
     def __init__(self, data, max_steps=2500):
@@ -143,7 +143,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('/mnt/coin_df6.csv')
+    data = pd.read_csv('coin_df6.csv')
     
     data['log_return_std'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
