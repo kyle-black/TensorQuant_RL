@@ -120,8 +120,8 @@ class TradingSimulator:
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
         past_std = np.std(past_log_returns)
-        sl_pips = 0.03 * past_std * 10000
-        tp_pips = 0.06 * past_std * 10000
+        sl_pips = 0.06 * past_std * 10000
+        tp_pips = 0.12 * past_std * 10000
         
         if direction == 'buy':
             self.tp_price = self.entry_price + (tp_pips / 10000) - (self.spread_pips / 10000)
