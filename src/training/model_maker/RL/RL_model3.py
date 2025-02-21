@@ -54,7 +54,7 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, risk_percentage=0.10, min_position_size=0.01, max_position_size=10.0, spread_pips=2, slippage_std_pips=0.5):
+    def __init__(self, data, initial_balance, risk_percentage, min_position_size, max_position_size, spread_pips, slippage_std_pips):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
         self.risk_percentage = risk_percentage  # e.g., 10% of balance
@@ -170,7 +170,7 @@ class TradingSimulator:
         self.sl_price = None
 
 # Run the simulation
-simulator = TradingSimulator(test_data, initial_balance=10000, risk_percentage=0.10, min_position_size=0.01, max_position_size=10.0, spread_pips=2, slippage_std_pips=0.5)
+simulator = TradingSimulator(test_data, initial_balance=10000, risk_percentage=0.20, min_position_size=0.1, max_position_size=10.0, spread_pips=2, slippage_std_pips=0.5)
 while simulator.step():
     pass
 
