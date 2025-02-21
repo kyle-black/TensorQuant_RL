@@ -7,6 +7,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import logging
 import torch
 
+# Configure logging
 logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class ForexEnv(gym.Env):
@@ -17,17 +18,19 @@ class ForexEnv(gym.Env):
         self.max_steps = max_steps
         self.start_step = 0
         self.reward_history = []
+        self.trades = 0  # Track trades per episode
         self.early_stop_patience = 500
         self.early_stop_threshold = -0.5
         num_features = self.data.shape[1]
         self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(15 * num_features,), dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
 
     def reset(self):
         upper_bound = len(self.data) - self.max_steps
         self.start_step = np.random.randint(15, upper_bound) if upper_bound > 15 else 15
         self.current_step = self.start_step
         self.reward_history = []
+        self.trades = 0  # Reset trades counter
         return self._get_observation()
 
     def _get_observation(self):
@@ -36,7 +39,7 @@ class ForexEnv(gym.Env):
         obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
         obs = obs.flatten().astype(np.float32)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return torch.tensor(obs, device=device).cpu().numpy()
+        return torch.tensor(obs, device=device).cpu().numpy()  # Convert to NumPy for SB3 compatibility
 
     def step(self, action):
         if self.current_step >= len(self.data) - 1:
@@ -44,17 +47,23 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        upper_barrier = 0.25 * past_std  # Lowered from 0.5
-        lower_barrier = -0.25 * past_std
+        upper_barrier = 0.05 * past_std  # Lowered from 0.25 to increase reward frequency
+        lower_barrier = -0.05 * past_std
         
         future_log_return = self.data.iloc[self.current_step + 1]['eurusd_log_return']
         
         if action == 0:  # Buy
-            reward = 2 if future_log_return > upper_barrier else -1
+            reward = 2 if future_log_return > upper_barrier else -1  # Reduced from +3 to balance risk/reward
+            self.trades += 1
         elif action == 1:  # Sell
             reward = 2 if future_log_return < lower_barrier else -1
+            self.trades += 1
         elif action == 2:  # Hold
-            reward = -0.01  # Reduced penalty
+            reward = 0 if abs(future_log_return) < past_std else -0.01  # Conditional Hold reward
+        
+        # Optional: Penalize over-trading to reduce drawdown
+        if self.trades > 1000:
+            reward -= 0.1
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -83,7 +92,7 @@ class ForexTradingModel:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}")
         
-        policy_kwargs = dict(net_arch=[256, 256])  # Larger network
+        policy_kwargs = dict(net_arch=[512, 512, 256])  # Larger network for better learning capacity
         self.model = PPO("MlpPolicy", train_env, verbose=1,
                          learning_rate=0.001,
                          n_steps=1024,
@@ -91,11 +100,11 @@ class ForexTradingModel:
                          n_epochs=3,
                          gamma=0.94,
                          clip_range=0.3,
-                         ent_coef=0.1,  # Increased exploration
+                         ent_coef=0.5,  # Increased to force exploration
                          device=device,
                          policy_kwargs=policy_kwargs)
         
-        self.model.learn(total_timesteps=1000000)  # Increased to 1M
+        self.model.learn(total_timesteps=2000000)  # Extended to 2M timesteps
         
         mean_reward, std_reward = evaluate_policy(self.model, val_env, n_eval_episodes=5)
         performance = self.evaluate_trading_performance(self.model, val_env)
@@ -145,9 +154,10 @@ class ForexTradingModel:
 if __name__ == "__main__":
     data = pd.read_csv('coin_df6.csv')
     
+    # Enhanced features
     data['log_return_std'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
-    data['log_return_std_long'] = data['eurusd_log_return'].rolling(window=50, min_periods=1).std()
+    data['log_return_std_long'] = data['eurusd_log_return'].rolling(window=50, min_periods=1).std()  # Long-term volatility
     data['bb_middle'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
     data['bb_upper'] = data['bb_middle'] + 2 * data['log_return_std']
     data['bb_lower'] = data['bb_middle'] - 2 * data['log_return_std']
@@ -155,7 +165,7 @@ if __name__ == "__main__":
     exp2 = data['eurusd_log_return'].ewm(span=26, adjust=False).mean()
     data['macd'] = exp1 - exp2
     data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-    data['macd_diff'] = data['macd'] - data['macd_signal']
+    data['macd_diff'] = data['macd'] - data['macd_signal']  # MACD momentum
     
     data.dropna(inplace=True)
     
