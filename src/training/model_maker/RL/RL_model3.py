@@ -5,11 +5,11 @@ import torch
 import random
 
 # Load the trained model
-model_path = "/mnt/ppo_forex_model.zip"  # Update with your actual model path
+model_path = "ppo_forex_model.zip"  # Update with your actual model path
 model = PPO.load(model_path)
 
 # Load and prepare test data (last 15%)
-data = pd.read_csv('/mnt/coin_df6.csv')  # Update with your actual data path
+data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
