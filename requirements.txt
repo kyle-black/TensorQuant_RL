@@ -4,7 +4,7 @@ requests
 psycopg2-binary
 python-dotenv
 sqlalchemy
-tensorflow
+
 scikit-learn
 stable-baselines3
 gym
