@@ -139,7 +139,7 @@ class TradingSimulator:
         self.balance += profit
         self.trades.append({
             'direction': self.active_trade,
-            'entry_step': self.entry_step,
+            #'entry_step': self.entry_step,
             'exit_step': self.current_step,
             'entry_price': self.entry_price,
             'exit_price': exit_price,
