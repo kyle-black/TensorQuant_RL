@@ -7,7 +7,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 import logging
 import torch
 
-# Configure logging to write to /mnt
+# Configure logging
 logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class ForexEnv(gym.Env):
@@ -37,7 +37,8 @@ class ForexEnv(gym.Env):
         obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
         obs = obs.flatten().astype(np.float32)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return torch.tensor(obs, device=device)
+        # Return as NumPy array after moving to CPU
+        return torch.tensor(obs, device=device).cpu().numpy()
 
     def step(self, action):
         if self.current_step >= len(self.data) - 1:
@@ -51,15 +52,9 @@ class ForexEnv(gym.Env):
         future_log_return = self.data.iloc[self.current_step + 1]['eurusd_log_return']
         
         if action == 0:  # Buy
-            if future_log_return > upper_barrier:
-                reward = 1
-            else:
-                reward = -1
+            reward = 1 if future_log_return > upper_barrier else -1
         elif action == 1:  # Sell
-            if future_log_return < lower_barrier:
-                reward = 1
-            else:
-                reward = -1
+            reward = 1 if future_log_return < lower_barrier else -1
         elif action == 2:  # Hold
             reward = -0.05
         
@@ -93,12 +88,12 @@ class ForexTradingModel:
         self.model = PPO("MlpPolicy", train_env, verbose=1,
                          learning_rate=0.001,
                          n_steps=1024,
-                         batch_size=190,
+                         batch_size=256,  # Factor of 1024
                          n_epochs=3,
                          gamma=0.94,
                          clip_range=0.3,
                          ent_coef=0.05,
-                         device=device)
+                         device=device)  # Use GPU if available
         
         self.model.learn(total_timesteps=600000)
         
@@ -131,7 +126,7 @@ class ForexTradingModel:
 
             if done:
                 break
-        print('totalreward:',total_reward)
+
         max_equity = max(equity_curve)
         drawdowns = [max_equity - x for x in equity_curve]
         max_drawdown = max(drawdowns)
@@ -148,7 +143,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')  # Updated path
+    data = pd.read_csv('coin_df6.csv')
     
     data['log_return_std'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
