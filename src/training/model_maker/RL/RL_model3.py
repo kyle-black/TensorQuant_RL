@@ -174,6 +174,7 @@ simulator = TradingSimulator(test_data, initial_balance=10000, risk_percentage=0
 while simulator.step():
     pass
 
+print('THIS IS THE UPDATED VERSION')
 # Analyze results
 print(f"Final Account Balance: {simulator.balance}")
 print(f"Number of Trades: {len(simulator.trades)}")
