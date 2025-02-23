@@ -9,7 +9,7 @@ import logging
 import torch
 
 # Configure logging
-logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class EntropyDecayCallback(BaseCallback):
     def __init__(self, verbose=0):
@@ -121,7 +121,7 @@ class ForexTradingModel:
         self.model.learn(total_timesteps=3000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
         # Save the final model
-        model_save_path = "/mnt/ppo_forex_model_v2.zip"
+        model_save_path = "ppo_forex_model_v2.zip"
         self.model.save(model_save_path)
         print(f"Model saved to {model_save_path}")
         
@@ -171,7 +171,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('/mnt/coin_df6.csv')
+    data = pd.read_csv('coin_df6.csv')
     
     # Detrend the log return
     data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
