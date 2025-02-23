@@ -1,188 +1,226 @@
-import pandas as pd
+import gym
 import numpy as np
+import pandas as pd
 from stable_baselines3 import PPO
+from gym import spaces
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CheckpointCallback
+import logging
 import torch
-import random
 
-# Load the trained model
-model_path = "ppo_forex_model.zip"  # Update with your actual model path
-model = PPO.load(model_path)
+# Configure logging
+logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# Load and prepare test data (last 15%)
-data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
-split = int(len(data) * 0.85)
-test_data = data.iloc[split:].copy()
+class EntropyDecayCallback(BaseCallback):
+    def __init__(self, verbose=0):
+        super(EntropyDecayCallback, self).__init__(verbose)
+        self.initial_ent_coef = 0.5
+        self.final_ent_coef = 0.1  # Increased to maintain exploration
+        self.total_timesteps = 3000000
 
-# Add necessary features
-test_data['log_return_std'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
-test_data['log_return_mean'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
-test_data['log_return_std_long'] = test_data['eurusd_log_return'].rolling(window=50, min_periods=1).std()
-test_data['bb_middle'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
-test_data['bb_upper'] = test_data['bb_middle'] + 2 * test_data['log_return_std']
-test_data['bb_lower'] = test_data['bb_middle'] - 2 * test_data['log_return_std']
-exp1 = test_data['eurusd_log_return'].ewm(span=12, adjust=False).mean()
-exp2 = test_data['eurusd_log_return'].ewm(span=26, adjust=False).mean()
-test_data['macd'] = exp1 - exp2
-test_data['macd_signal'] = test_data['macd'].ewm(span=9, adjust=False).mean()
-test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
-
-# Clean NaN or inf values
-test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
-
-# Select training columns
-test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
-                       'cos_time', 'sin_time', 'eurusd_close', 'eurusd_log_return',
-                       'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
-                       'Normalized_eurusd_audusd_Coin', 'Normalized_eurusd_gbpjpy_Coin', 'Normalized_eurusd_nzdjpy_Coin',
-                       'Normalized_eurusd_usdcad_Coin', 'Normalized_eurusd_usdchf_Coin', 'Normalized_eurusd_usdhkd_Coin',
-                       'Normalized_eurusd_usdjpy_Coin', 'Normalized_eurjpy_eurgbp_Coin', 'Normalized_eurjpy_audjpy_Coin',
-                       'Normalized_eurjpy_audusd_Coin', 'Normalized_eurjpy_gbpjpy_Coin', 'Normalized_eurjpy_nzdjpy_Coin',
-                       'Normalized_eurjpy_usdcad_Coin', 'Normalized_eurjpy_usdchf_Coin', 'Normalized_eurjpy_usdhkd_Coin',
-                       'Normalized_eurjpy_usdjpy_Coin', 'Normalized_eurgbp_audjpy_Coin', 'Normalized_eurgbp_audusd_Coin',
-                       'Normalized_eurgbp_gbpjpy_Coin', 'Normalized_eurgbp_nzdjpy_Coin', 'Normalized_eurgbp_usdcad_Coin',
-                       'Normalized_eurgbp_usdchf_Coin', 'Normalized_eurgbp_usdhkd_Coin', 'Normalized_eurgbp_usdjpy_Coin',
-                       'Normalized_audjpy_audusd_Coin', 'Normalized_audjpy_gbpjpy_Coin', 'Normalized_audjpy_nzdjpy_Coin',
-                       'Normalized_audjpy_usdcad_Coin', 'Normalized_audjpy_usdchf_Coin', 'Normalized_audjpy_usdhkd_Coin',
-                       'Normalized_audjpy_usdjpy_Coin', 'Normalized_audusd_gbpjpy_Coin', 'Normalized_audusd_nzdjpy_Coin',
-                       'Normalized_audusd_usdcad_Coin', 'Normalized_audusd_usdchf_Coin', 'Normalized_audusd_usdhkd_Coin',
-                       'Normalized_audusd_usdjpy_Coin', 'Normalized_gbpjpy_nzdjpy_Coin', 'Normalized_gbpjpy_usdcad_Coin',
-                       'Normalized_gbpjpy_usdchf_Coin', 'Normalized_gbpjpy_usdhkd_Coin', 'Normalized_gbpjpy_usdjpy_Coin',
-                       'Normalized_nzdjpy_usdcad_Coin', 'Normalized_nzdjpy_usdchf_Coin', 'Normalized_nzdjpy_usdhkd_Coin',
-                       'Normalized_nzdjpy_usdjpy_Coin', 'Normalized_usdcad_usdchf_Coin', 'Normalized_usdcad_usdhkd_Coin',
-                       'Normalized_usdcad_usdjpy_Coin', 'Normalized_usdchf_usdhkd_Coin', 'Normalized_usdchf_usdjpy_Coin',
-                       'Normalized_usdhkd_usdjpy_Coin', 'RSI', '%K', '%D', 'direction', 'tenkan_sen', 'kijun_sen',
-                       'senkou_span_a', 'senkou_span_b', 'chikou_span']]
-
-class TradingSimulator:
-    def __init__(self, data, initial_balance, risk_percentage, min_position_size, max_position_size, spread_pips, slippage_std_pips):
-        self.data = data.reset_index(drop=True)
-        self.initial_balance = initial_balance
-        self.risk_percentage = risk_percentage  # e.g., 10% of balance
-        self.min_position_size = min_position_size  # Minimum 0.01 lots ($0.1/pip)
-        self.max_position_size = max_position_size  # Maximum 10 lots ($100/pip)
-        self.spread_pips = spread_pips
-        self.slippage_std_pips = slippage_std_pips
-        self.balance = initial_balance
-        self.equity_curve = []
-        self.trades = []
-        self.current_step = 15
-        self.active_trade = None
-        self.entry_price = None
-        self.tp_price = None
-        self.sl_price = None
-        self.position_size = self.calculate_position_size()
-
-    def calculate_position_size(self):
-        # Position size = (risk_percentage * balance) / (pip value per lot)
-        # For EUR/USD, 1 lot = $10/pip, so 0.1 lots = $1/pip
-        target_risk_dollars = self.risk_percentage * self.balance
-        position_size = target_risk_dollars / 10  # Convert to lots ($10/pip for 1 lot)
-        return max(self.min_position_size, min(self.max_position_size, position_size))
-
-    def get_observation(self):
-        start = max(0, self.current_step - 14)
-        obs = self.data.iloc[start:self.current_step+1].values
-        if len(obs) < 15:
-            obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant', constant_values=0)
-        obs = obs.flatten().astype(np.float32)
-        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
-            obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
-        return obs
-
-    def step(self):
-        if self.current_step >= len(self.data):
-            return False
-
-        obs = self.get_observation()
-        print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
-        action, _ = model.predict(obs)
-
-        if self.active_trade is None:
-            if action == 0:  # Buy
-                self.enter_trade('buy')
-            elif action == 1:  # Sell
-                self.enter_trade('sell')
-        elif self.active_trade == 'buy':
-            self.check_exit('buy')
-        elif self.active_trade == 'sell':
-            self.check_exit('sell')
-
-        self.current_step += 1
-        self.equity_curve.append(self.balance)
+    def _on_step(self):
+        progress = self.num_timesteps / self.total_timesteps
+        current_ent_coef = self.initial_ent_coef + (self.final_ent_coef - self.initial_ent_coef) * progress
+        self.model.ent_coef = torch.tensor(current_ent_coef, device=self.model.device)
         return True
 
-    def enter_trade(self, direction):
-        self.active_trade = direction
-        self.position_size = self.calculate_position_size()  # Update position size dynamically
-        current_price = self.data.iloc[self.current_step]['eurusd_close']
-        slippage = np.random.normal(0, self.slippage_std_pips) / 10000
-        self.entry_price = current_price + slippage if direction == 'buy' else current_price - slippage
+class ForexEnv(gym.Env):
+    def __init__(self, data, max_steps=2500):
+        super(ForexEnv, self).__init__()
+        self.data = data
+        self.current_step = 0
+        self.max_steps = max_steps
+        self.start_step = 0
+        self.reward_history = []
+        self.trades = 0
+        self.early_stop_patience = 500
+        self.early_stop_threshold = -0.5
+        num_features = self.data.shape[1]
+        self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(15 * num_features,), dtype=np.float32)
+        self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
+
+    def reset(self):
+        upper_bound = len(self.data) - self.max_steps
+        self.start_step = np.random.randint(15, upper_bound) if upper_bound > 15 else 15
+        self.current_step = self.start_step
+        self.reward_history = []
+        self.trades = 0
+        return self._get_observation()
+
+    def _get_observation(self):
+        start = max(0, self.current_step - 14)
+        obs = self.data.iloc[start:self.current_step+1].values
+        obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
+        obs = obs.flatten().astype(np.float32)
+        return obs
+
+    def step(self, action):
+        if self.current_step >= len(self.data) - 1:
+            return np.zeros(self.observation_space.shape), 0, True, {}
         
-        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
-        past_std = np.std(past_log_returns)
-        sl_pips = 0.03 * past_std * 10000
-        tp_pips = 0.06 * past_std * 10000
+        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
+        past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
+        upper_barrier = 0.09 * past_std  # Adjusted for 3:1 ratio
+        lower_barrier = -0.09 * past_std
         
-        if direction == 'buy':
-            self.tp_price = self.entry_price + (tp_pips / 10000) - (self.spread_pips / 10000)
-            self.sl_price = self.entry_price - (sl_pips / 10000)
-        else:
-            self.tp_price = self.entry_price - (tp_pips / 10000) + (self.spread_pips / 10000)
-            self.sl_price = self.entry_price + (sl_pips / 10000)
-
-    def check_exit(self, direction):
-        current_price = self.data.iloc[self.current_step]['eurusd_close']
-        slippage = np.random.normal(0, self.slippage_std_pips) / 10000
-        effective_price = current_price - slippage if direction == 'buy' else current_price + slippage
+        future_log_return = self.data.iloc[self.current_step + 1]['detrended_log_return']
         
-        if direction == 'buy':
-            if effective_price >= self.tp_price:
-                self.close_trade('tp', effective_price)
-            elif effective_price <= self.sl_price:
-                self.close_trade('sl', effective_price)
-        else:
-            if effective_price <= self.tp_price:
-                self.close_trade('tp', effective_price)
-            elif effective_price >= self.sl_price:
-                self.close_trade('sl', effective_price)
+        if action == 0:  # Buy
+            reward = 3 if future_log_return > upper_barrier else -1  # Symmetric reward
+            self.trades += 1
+        elif action == 1:  # Sell
+            reward = 3 if future_log_return < lower_barrier else -1  # Symmetric reward
+            self.trades += 1
+        elif action == 2:  # Hold
+            reward = 0 if abs(future_log_return) < 0.03 * past_std else -0.01
+        
+        self.reward_history.append(reward)
+        if len(self.reward_history) > self.early_stop_patience:
+            self.reward_history.pop(0)
+        
+        self.current_step += 1
+        
+        avg_reward = np.mean(self.reward_history) if self.reward_history else 0
+        done = (len(self.reward_history) == self.early_stop_patience and avg_reward < self.early_stop_threshold) or \
+               (self.current_step - self.start_step >= self.max_steps) or \
+               (self.current_step >= len(self.data) - 1)
+        
+        next_state = self._get_observation() if not done else np.zeros(self.observation_space.shape)
+        
+        return next_state, reward, done, {}
 
-    def close_trade(self, reason, exit_price):
-        if self.active_trade == 'buy':
-            pips_gained = (exit_price - self.entry_price) * 10000
-        else:
-            pips_gained = (self.entry_price - exit_price) * 10000
-        profit = pips_gained * self.position_size * 10
-        self.balance += profit
-        print(f'Current balance: {self.balance}, Position size: {self.position_size}, Profit: {profit}')
-        self.trades.append({
-            'direction': self.active_trade,
-            'exit_step': self.current_step,
-            'entry_price': self.entry_price,
-            'exit_price': exit_price,
-            'pips_gained': pips_gained,
-            'profit': profit,
-            'reason': reason,
-            'position_size': self.position_size
-        })
-        self.active_trade = None
-        self.entry_price = None
-        self.tp_price = None
-        self.sl_price = None
+class ForexTradingModel:
+    def __init__(self, data_):
+        self.data = data_
+        self.model = None
 
-# Run the simulation
-simulator = TradingSimulator(test_data, initial_balance=10000, risk_percentage=0.20, min_position_size=0.1, max_position_size=10.0, spread_pips=2, slippage_std_pips=0.5)
-while simulator.step():
-    pass
+    def train_and_evaluate(self, train_data, val_data):
+        train_env = ForexEnv(train_data)
+        val_env = ForexEnv(val_data)
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        
+        policy_kwargs = dict(net_arch=[512, 512, 256])
+        self.model = PPO("MlpPolicy", train_env, verbose=1,
+                         learning_rate=0.001,
+                         n_steps=1024,
+                         batch_size=256,
+                         n_epochs=10,
+                         gamma=0.94,
+                         clip_range=0.3,
+                         ent_coef=0.5,  # Initial value, decayed via callback
+                         device=device,
+                         policy_kwargs=policy_kwargs)
+        
+        # Callbacks for entropy decay, early stopping, and periodic saving
+        entropy_callback = EntropyDecayCallback()
+        eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
+        
+        self.model.learn(total_timesteps=3000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
+        
+        # Save the final model
+        model_save_path = "/mnt/ppo_forex_model_v2.zip"
+        self.model.save(model_save_path)
+        print(f"Model saved to {model_save_path}")
+        
+        mean_reward, std_reward = evaluate_policy(self.model, val_env, n_eval_episodes=5)
+        performance = self.evaluate_trading_performance(self.model, val_env)
+        
+        return mean_reward, performance
 
-print('THIS IS THE UPDATED VERSION')
-# Analyze results
-print(f"Final Account Balance: {simulator.balance}")
-print(f"Number of Trades: {len(simulator.trades)}")
-wins = sum(1 for trade in simulator.trades if trade['profit'] > 0)
-win_rate = wins / len(simulator.trades) if len(simulator.trades) > 0 else 0
-print(f"Win Rate: {win_rate:.2%}")
-equity_curve = np.array(simulator.equity_curve)
-peak = np.maximum.accumulate(equity_curve)
-drawdown = peak - equity_curve
-max_drawdown = np.max(drawdown)
-print(f"Max Drawdown: {max_drawdown}")
+    def evaluate_trading_performance(self, model, env):
+        obs = env.reset()
+        total_reward = 0
+        trades = 0
+        profit = 0
+        loss = 0
+        max_drawdown = 0
+        equity_curve = []
+
+        while True:
+            action, _ = model.predict(obs)
+            obs, reward, done, _ = env.step(action)
+            total_reward += reward
+            equity_curve.append(total_reward)
+
+            if action in [0, 1]:
+                trades += 1
+                if reward > 0:
+                    profit += 1
+                else:
+                    loss += 1
+
+            if done:
+                break
+
+        max_equity = max(equity_curve)
+        drawdowns = [max_equity - x for x in equity_curve]
+        max_drawdown = max(drawdowns)
+
+        win_rate = profit / trades if trades > 0 else 0
+        sharpe_ratio = total_reward / np.std(equity_curve) if len(equity_curve) > 1 else 0
+
+        return {
+            'total_reward': total_reward,
+            'trades': trades,
+            'win_rate': win_rate,
+            'max_drawdown': max_drawdown,
+            'sharpe_ratio': sharpe_ratio
+        }
+
+if __name__ == "__main__":
+    data = pd.read_csv('/mnt/coin_df6.csv')
+    
+    # Detrend the log return
+    data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
+    
+    # Add other features
+    data['log_return_std'] = data['detrended_log_return'].rolling(window=15, min_periods=1).std()
+    data['log_return_mean'] = data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
+    data['log_return_std_long'] = data['detrended_log_return'].rolling(window=50, min_periods=1).std()
+    data['bb_middle'] = data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
+    data['bb_upper'] = data['bb_middle'] + 2 * data['log_return_std']
+    data['bb_lower'] = data['bb_middle'] - 2 * data['log_return_std']
+    exp1 = data['detrended_log_return'].ewm(span=12, adjust=False).mean()
+    exp2 = data['detrended_log_return'].ewm(span=26, adjust=False).mean()
+    data['macd'] = exp1 - exp2
+    data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
+    data['macd_diff'] = data['macd'] - data['macd_signal']
+    
+    data.dropna(inplace=True)
+    
+    data = data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
+                 'cos_time', 'sin_time', 'eurusd_close', 'detrended_log_return',
+                 'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
+                 'Normalized_eurusd_audusd_Coin', 'Normalized_eurusd_gbpjpy_Coin', 'Normalized_eurusd_nzdjpy_Coin',
+                 'Normalized_eurusd_usdcad_Coin', 'Normalized_eurusd_usdchf_Coin', 'Normalized_eurusd_usdhkd_Coin',
+                 'Normalized_eurusd_usdjpy_Coin', 'Normalized_eurjpy_eurgbp_Coin', 'Normalized_eurjpy_audjpy_Coin',
+                 'Normalized_eurjpy_audusd_Coin', 'Normalized_eurjpy_gbpjpy_Coin', 'Normalized_eurjpy_nzdjpy_Coin',
+                 'Normalized_eurjpy_usdcad_Coin', 'Normalized_eurjpy_usdchf_Coin', 'Normalized_eurjpy_usdhkd_Coin',
+                 'Normalized_eurjpy_usdjpy_Coin', 'Normalized_eurgbp_audjpy_Coin', 'Normalized_eurgbp_audusd_Coin',
+                 'Normalized_eurgbp_gbpjpy_Coin', 'Normalized_eurgbp_nzdjpy_Coin', 'Normalized_eurgbp_usdcad_Coin',
+                 'Normalized_eurgbp_usdchf_Coin', 'Normalized_eurgbp_usdhkd_Coin', 'Normalized_eurgbp_usdjpy_Coin',
+                 'Normalized_audjpy_audusd_Coin', 'Normalized_audjpy_gbpjpy_Coin', 'Normalized_audjpy_nzdjpy_Coin',
+                 'Normalized_audjpy_usdcad_Coin', 'Normalized_audjpy_usdchf_Coin', 'Normalized_audjpy_usdhkd_Coin',
+                 'Normalized_audjpy_usdjpy_Coin', 'Normalized_audusd_gbpjpy_Coin', 'Normalized_audusd_nzdjpy_Coin',
+                 'Normalized_audusd_usdcad_Coin', 'Normalized_audusd_usdchf_Coin', 'Normalized_audusd_usdhkd_Coin',
+                 'Normalized_audusd_usdjpy_Coin', 'Normalized_gbpjpy_nzdjpy_Coin', 'Normalized_gbpjpy_usdcad_Coin',
+                 'Normalized_gbpjpy_usdchf_Coin', 'Normalized_gbpjpy_usdhkd_Coin', 'Normalized_gbpjpy_usdjpy_Coin',
+                 'Normalized_nzdjpy_usdcad_Coin', 'Normalized_nzdjpy_usdchf_Coin', 'Normalized_nzdjpy_usdhkd_Coin',
+                 'Normalized_nzdjpy_usdjpy_Coin', 'Normalized_usdcad_usdchf_Coin', 'Normalized_usdcad_usdhkd_Coin',
+                 'Normalized_usdcad_usdjpy_Coin', 'Normalized_usdchf_usdhkd_Coin', 'Normalized_usdchf_usdjpy_Coin',
+                 'Normalized_usdhkd_usdjpy_Coin', 'RSI', '%K', '%D', 'direction', 'tenkan_sen', 'kijun_sen',
+                 'senkou_span_a', 'senkou_span_b', 'chikou_span']]
+    
+    trader = ForexTradingModel(data)
+    train_split = int(len(data) * 0.7)  # 70% for training
+    val_split = int(len(data) * 0.85)   # 15% for validation (70-85%)
+    train_data = data.iloc[:train_split]
+    val_data = data.iloc[train_split:val_split]
+    
+    mean_reward, performance = trader.train_and_evaluate(train_data, val_data)
+    
+    logging.info(f"Mean Reward (Validation): {mean_reward}")
+    logging.info(f"Performance Metrics (Validation): {performance}")

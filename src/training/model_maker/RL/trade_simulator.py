@@ -3,13 +3,14 @@ import numpy as np
 from stable_baselines3 import PPO
 import torch
 import random
+import matplotlib.pyplot as plt
 
 # Load the trained model
-model_path = "ppo_forex_model.zip"  # Corrected path
+model_path = "ppo_forex_model.zip"  # Update with your actual model path
 model = PPO.load(model_path)
 
 # Load and prepare test data (last 15%)
-data = pd.read_csv('coin_df6.csv')  # Corrected path
+data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
@@ -54,12 +55,17 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, position_size=0.1, spread_pips=2, slippage_std_pips=0.5):
+    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=2, slippage_std_pips=0.5, penalty=0, sl_factor=3, tp_factor=9):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
-        self.position_size = position_size
+        self.risk_percentage = risk_percentage  # Reduced to 0.5%
+        self.min_position_size = min_position_size
+        self.max_position_size = max_position_size
         self.spread_pips = spread_pips
         self.slippage_std_pips = slippage_std_pips
+        self.penalty = penalty
+        self.sl_factor = sl_factor  # SL multiplier
+        self.tp_factor = tp_factor  # TP multiplier for 3:1 ratio
         self.balance = initial_balance
         self.equity_curve = []
         self.trades = []
@@ -68,6 +74,14 @@ class TradingSimulator:
         self.entry_price = None
         self.tp_price = None
         self.sl_price = None
+        self.position_size = self.calculate_position_size()
+        self.sl_pips = None
+        self.tp_pips = None
+
+    def calculate_position_size(self):
+        target_risk_dollars = self.risk_percentage * self.balance
+        position_size = target_risk_dollars / 10  # $10/pip per lot
+        return max(self.min_position_size, min(self.max_position_size, position_size))
 
     def get_observation(self):
         start = max(0, self.current_step - 14)
@@ -80,13 +94,13 @@ class TradingSimulator:
         return obs
 
     def step(self):
-        if self.current_step >= len(self.data):
+        if self.current_step >= len(self.data) or self.balance < 0.2 * self.initial_balance:  # Kill switch at 20%
             return False
 
         obs = self.get_observation()
         print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
-        action, _ = model.predict(obs)
-
+        action, _ = model.predict(obs, deterministic=True)  # Use deterministic for consistency
+        print('action:',action)
         if self.active_trade is None:
             if action == 0:  # Buy
                 self.enter_trade('buy')
@@ -103,21 +117,22 @@ class TradingSimulator:
 
     def enter_trade(self, direction):
         self.active_trade = direction
+        self.position_size = self.calculate_position_size()
         current_price = self.data.iloc[self.current_step]['eurusd_close']
         slippage = np.random.normal(0, self.slippage_std_pips) / 10000
         self.entry_price = current_price + slippage if direction == 'buy' else current_price - slippage
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
         past_std = np.std(past_log_returns)
-        sl_pips = 0.06 * past_std * 10000
-        tp_pips = 0.12 * past_std * 10000
+        self.sl_pips = self.sl_factor * past_std * 10000  # e.g., 15 pips if past_std ≈ 0.0005
+        self.tp_pips = self.tp_factor * past_std * 10000  # e.g., 45 pips for 3:1 ratio
         
         if direction == 'buy':
-            self.tp_price = self.entry_price + (tp_pips / 10000) - (self.spread_pips / 10000)
-            self.sl_price = self.entry_price - (sl_pips / 10000)
+            self.tp_price = self.entry_price + (self.tp_pips / 10000) - (self.spread_pips / 10000)
+            self.sl_price = self.entry_price - (self.sl_pips / 10000)
         else:
-            self.tp_price = self.entry_price - (tp_pips / 10000) + (self.spread_pips / 10000)
-            self.sl_price = self.entry_price + (sl_pips / 10000)
+            self.tp_price = self.entry_price - (self.tp_pips / 10000) + (self.spread_pips / 10000)
+            self.sl_price = self.entry_price + (self.sl_pips / 10000)
 
     def check_exit(self, direction):
         current_price = self.data.iloc[self.current_step]['eurusd_close']
@@ -137,12 +152,21 @@ class TradingSimulator:
 
     def close_trade(self, reason, exit_price):
         if self.active_trade == 'buy':
-            pips_gained = (exit_price - self.entry_price) * 10000
+            pips_gained_raw = (exit_price - self.entry_price) * 10000 - self.penalty
+            if reason == 'tp':
+                pips_gained = min(pips_gained_raw, self.tp_pips)
+            elif reason == 'sl':
+                pips_gained = max(pips_gained_raw, -self.sl_pips)
         else:
-            pips_gained = (self.entry_price - exit_price) * 10000
+            pips_gained_raw = (self.entry_price - exit_price) * 10000 - self.penalty
+            if reason == 'tp':
+                pips_gained = min(pips_gained_raw, self.tp_pips)
+            elif reason == 'sl':
+                pips_gained = max(pips_gained_raw, -self.sl_pips)
+        
         profit = pips_gained * self.position_size * 10
         self.balance += profit
-        print(f'current balance {self.balance}')
+        print(f'Current balance: {self.balance}, Position size: {self.position_size}, Profit: {profit}')
         self.trades.append({
             'direction': self.active_trade,
             'exit_step': self.current_step,
@@ -150,7 +174,8 @@ class TradingSimulator:
             'exit_price': exit_price,
             'pips_gained': pips_gained,
             'profit': profit,
-            'reason': reason
+            'reason': reason,
+            'position_size': self.position_size
         })
         self.active_trade = None
         self.entry_price = None
@@ -158,7 +183,18 @@ class TradingSimulator:
         self.sl_price = None
 
 # Run the simulation
-simulator = TradingSimulator(test_data, spread_pips=2, slippage_std_pips=0.5)
+simulator = TradingSimulator(
+    test_data,
+    initial_balance=10000,
+    risk_percentage=0.005,
+    min_position_size=0.01,
+    max_position_size=5.0,
+    spread_pips=0,
+    slippage_std_pips=0.0,
+    penalty=0,
+    sl_factor=3,
+    tp_factor=9  # 3:1 ratio
+)
 while simulator.step():
     pass
 
@@ -173,3 +209,21 @@ peak = np.maximum.accumulate(equity_curve)
 drawdown = peak - equity_curve
 max_drawdown = np.max(drawdown)
 print(f"Max Drawdown: {max_drawdown}")
+
+# Additional diagnostics
+num_tp = sum(1 for trade in simulator.trades if trade['reason'] == 'tp')
+num_sl = sum(1 for trade in simulator.trades if trade['reason'] == 'sl')
+avg_tp_pips = np.mean([trade['pips_gained'] for trade in simulator.trades if trade['reason'] == 'tp']) if num_tp > 0 else 0
+avg_sl_pips = np.mean([trade['pips_gained'] for trade in simulator.trades if trade['reason'] == 'sl']) if num_sl > 0 else 0
+total_pips = sum(trade['pips_gained'] for trade in simulator.trades)
+
+print(f"TP Hits: {num_tp}, SL Hits: {num_sl}")
+print(f"Average TP Pips: {avg_tp_pips:.2f}, Average SL Pips: {avg_sl_pips:.2f}")
+print(f"Total Pips Gained: {total_pips:.2f}")
+
+# Plot equity curve
+plt.plot(simulator.equity_curve)
+plt.title('Equity Curve')
+plt.xlabel('Steps')
+plt.ylabel('Balance')
+plt.show()
