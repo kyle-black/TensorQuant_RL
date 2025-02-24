@@ -145,9 +145,9 @@ class ForexTradingModel:
         
         entropy_callback = EntropyDecayCallback()
         eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
-        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=100000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
-        self.model.learn(total_timesteps=5000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
+        self.model.learn(total_timesteps=100000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
         model_save_path = "/mnt/ppo_forex_model_v3.zip"
         self.model.save(model_save_path)
