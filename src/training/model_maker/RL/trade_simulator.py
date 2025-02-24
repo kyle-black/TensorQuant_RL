@@ -5,9 +5,9 @@ import torch
 import random
 import matplotlib.pyplot as plt
 
-# Load the trained model
+# Load the trained model on CPU
 model_path = "ppo_forex_model_v2.zip"  # Update with your actual model path
-model = PPO.load(model_path)
+model = PPO.load(model_path, device='cpu')
 
 # Load and prepare test data (last 15%)
 data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
@@ -90,7 +90,7 @@ class TradingSimulator:
         obs = self.data.iloc[start:self.current_step+1].values
         if len(obs) < 15:
             obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant')
-        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)  # Normalize
+        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)
         obs = obs.flatten().astype(np.float32)
         if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
             obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -102,15 +102,15 @@ class TradingSimulator:
 
         obs = self.get_observation()
         print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
-        print(f"Obs sample: {obs[:5]}")  # Debug observation changes
+        print(f"Obs sample: {obs[:5]}")
 
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
         with torch.no_grad():
             dist = model.policy.get_distribution(obs_tensor)
             probs = dist.distribution.probs.cpu().numpy()[0]
             action, _ = model.predict(obs, deterministic=False)
-            if probs[1] - probs[0] < 0.20:  # Increased threshold to 20%
-                action = np.random.choice([0, 1], p=[probs[0]/(probs[0]+probs[1]), probs[1]/(probs[0]+probs[1])])
+            if probs[1] - probs[0] < 0.10:  # Tightened to 10%
+                action = np.random.choice([0, 1, 2], p=probs)  # Include all actions
 
         print(f"Action: {action}, Probabilities: Buy={probs[0]:.4f}, Sell={probs[1]:.4f}, Hold={probs[2]:.4f}")
 
