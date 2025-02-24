@@ -14,10 +14,10 @@ data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
-# Detrend the log return (same as training)
+# Detrend the log return
 test_data['detrended_log_return'] = test_data['eurusd_log_return'] - test_data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
 
-# Add necessary features using detrended log return
+# Add necessary features
 test_data['log_return_std'] = test_data['detrended_log_return'].rolling(window=15, min_periods=1).std()
 test_data['log_return_mean'] = test_data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
 test_data['log_return_std_long'] = test_data['detrended_log_return'].rolling(window=50, min_periods=1).std()
@@ -30,7 +30,6 @@ test_data['macd'] = exp1 - exp2
 test_data['macd_signal'] = test_data['macd'].ewm(span=9, adjust=False).mean()
 test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
 
-# Clean NaN or inf values
 test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
 
 # Select training columns
@@ -58,7 +57,7 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=1, tp_factor=3):
+    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=3, tp_factor=9):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
         self.risk_percentage = risk_percentage
@@ -67,8 +66,8 @@ class TradingSimulator:
         self.spread_pips = spread_pips
         self.slippage_std_pips = slippage_std_pips
         self.penalty = penalty
-        self.sl_factor = sl_factor  # Adjusted to match training (0.03 * past_std)
-        self.tp_factor = tp_factor  # Adjusted to match training (0.09 * past_std)
+        self.sl_factor = sl_factor
+        self.tp_factor = tp_factor
         self.balance = initial_balance
         self.equity_curve = []
         self.trades = []
@@ -83,14 +82,15 @@ class TradingSimulator:
 
     def calculate_position_size(self):
         target_risk_dollars = self.risk_percentage * self.balance
-        position_size = target_risk_dollars / 10  # $10/pip per lot
+        position_size = target_risk_dollars / 10
         return max(self.min_position_size, min(self.max_position_size, position_size))
 
     def get_observation(self):
         start = max(0, self.current_step - 14)
         obs = self.data.iloc[start:self.current_step+1].values
         if len(obs) < 15:
-            obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant', constant_values=0)
+            obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant')
+        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)  # Normalize
         obs = obs.flatten().astype(np.float32)
         if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
             obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -102,15 +102,15 @@ class TradingSimulator:
 
         obs = self.get_observation()
         print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
+        print(f"Obs sample: {obs[:5]}")  # Debug observation changes
 
-        # Convert observation to tensor and move to device
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
-
-        # Get action distribution and probabilities
         with torch.no_grad():
             dist = model.policy.get_distribution(obs_tensor)
-            probs = dist.distribution.probs.cpu().numpy()[0]  # Probabilities for [Buy, Sell, Hold]
-            action, _ = model.predict(obs, deterministic=False)  # Stochastic prediction
+            probs = dist.distribution.probs.cpu().numpy()[0]
+            action, _ = model.predict(obs, deterministic=False)
+            if probs[1] - probs[0] < 0.20:  # Increased threshold to 20%
+                action = np.random.choice([0, 1], p=[probs[0]/(probs[0]+probs[1]), probs[1]/(probs[0]+probs[1])])
 
         print(f"Action: {action}, Probabilities: Buy={probs[0]:.4f}, Sell={probs[1]:.4f}, Hold={probs[2]:.4f}")
 
@@ -137,8 +137,8 @@ class TradingSimulator:
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns)
-        self.sl_pips = self.sl_factor * past_std * 10000  # Matches training 0.03 * past_std
-        self.tp_pips = self.tp_factor * past_std * 10000  # Matches training 0.09 * past_std
+        self.sl_pips = self.sl_factor * past_std * 10000
+        self.tp_pips = self.tp_factor * past_std * 10000
         
         if direction == 'buy':
             self.tp_price = self.entry_price + (self.tp_pips / 10000) - (self.spread_pips / 10000)
@@ -205,8 +205,8 @@ simulator = TradingSimulator(
     spread_pips=0,
     slippage_std_pips=0.0,
     penalty=0,
-    sl_factor=1,  # Adjusted to match training (0.03 * past_std scaled)
-    tp_factor=3   # Adjusted to match training (0.09 * past_std scaled)
+    sl_factor=3,
+    tp_factor=9
 )
 while simulator.step():
     pass
@@ -223,7 +223,6 @@ drawdown = peak - equity_curve
 max_drawdown = np.max(drawdown)
 print(f"Max Drawdown: {max_drawdown}")
 
-# Additional diagnostics
 num_tp = sum(1 for trade in simulator.trades if trade['reason'] == 'tp')
 num_sl = sum(1 for trade in simulator.trades if trade['reason'] == 'sl')
 avg_tp_pips = np.mean([trade['pips_gained'] for trade in simulator.trades if trade['reason'] == 'tp']) if num_tp > 0 else 0
@@ -234,11 +233,9 @@ print(f"TP Hits: {num_tp}, SL Hits: {num_sl}")
 print(f"Average TP Pips: {avg_tp_pips:.2f}, Average SL Pips: {avg_sl_pips:.2f}")
 print(f"Total Pips Gained: {total_pips:.2f}")
 
-# Action distribution
 actions = [trade['direction'] for trade in simulator.trades]
 print(f"Buy Trades: {actions.count('buy')}, Sell Trades: {actions.count('sell')}")
 
-# Plot equity curve
 plt.plot(simulator.equity_curve)
 plt.title('Equity Curve')
 plt.xlabel('Steps')
