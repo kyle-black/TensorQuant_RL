@@ -6,7 +6,7 @@ import random
 import matplotlib.pyplot as plt
 
 # Load the trained model
-model_path = "ppo_forex_model.zip"  # Update with your actual model path
+model_path = "ppo_forex_model2.zip"  # Update with your actual model path
 model = PPO.load(model_path)
 
 # Load and prepare test data (last 15%)
