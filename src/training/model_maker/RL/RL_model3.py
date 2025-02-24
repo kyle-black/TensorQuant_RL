@@ -107,8 +107,8 @@ class ForexTradingModel:
         
         policy_kwargs = dict(net_arch=[512, 512, 256])
         self.model = PPO("MlpPolicy", train_env, verbose=1,
-                         learning_rate=0.003,  # Increased for better convergence
-                         n_steps=2048,  # Doubled for more updates
+                         learning_rate=0.003,
+                         n_steps=2048,
                          batch_size=256,
                          n_epochs=10,
                          gamma=0.94,
@@ -173,7 +173,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')
+    data = pd.read_csv('/mnt/coin_df6.csv')
     
     data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
     
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     exp2 = data['detrended_log_return'].ewm(span=26, adjust=False).mean()
     data['macd'] = exp1 - exp2
     data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-    data['macd_diff'] = data['macd'] - test_data['macd_signal']
+    data['macd_diff'] = data['macd'] - data['macd_signal']  # Fixed: use data, not test_data
     
     data.dropna(inplace=True)
     
