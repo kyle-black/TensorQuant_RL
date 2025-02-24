@@ -8,15 +8,14 @@ from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, Check
 import logging
 import torch
 
-# Configure logging
 logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class EntropyDecayCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(EntropyDecayCallback, self).__init__(verbose)
         self.initial_ent_coef = 0.5
-        self.final_ent_coef = 0.3  # Increased for more exploration
-        self.total_timesteps = 5000000  # Extended training
+        self.final_ent_coef = 0.3
+        self.total_timesteps = 5000000
 
     def _on_step(self):
         progress = self.num_timesteps / self.total_timesteps
@@ -52,7 +51,7 @@ class ForexEnv(gym.Env):
         obs = self.data.iloc[start:self.current_step+1].values
         if len(obs) < 15:
             obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
-        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)  # Normalize
+        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)
         obs = obs.flatten().astype(np.float32)
         return obs
 
@@ -62,30 +61,57 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        upper_barrier = 0.09 * past_std
-        lower_barrier = -0.09 * past_std
+        sl_barrier = 0.03 * past_std
+        tp_barrier = 0.09 * past_std
         
-        future_log_return = self.data.iloc[self.current_step + 1]['detrended_log_return']
+        reward = 0
+        done = False
+        steps_ahead = 0
+        max_steps = 10
         
-        if action == 0:  # Buy
-            reward = 3 if future_log_return > upper_barrier else -1
-            self.trades += 1
-        elif action == 1:  # Sell
-            reward = 3 if future_log_return < lower_barrier else -1
-            self.trades += 1
-        elif action == 2:  # Hold
-            reward = 0 if abs(future_log_return) < 0.03 * past_std else -0.01
+        while steps_ahead < max_steps and self.current_step + steps_ahead + 1 < len(self.data):
+            future_log_return = self.data.iloc[self.current_step + steps_ahead + 1]['detrended_log_return']
+            cumulative_return = sum(self.data.iloc[self.current_step + 1:self.current_step + steps_ahead + 2]['detrended_log_return'])
+            
+            if action == 0:  # Buy
+                if cumulative_return >= tp_barrier:
+                    reward = 3
+                    done = True
+                    break
+                elif cumulative_return <= -sl_barrier:
+                    reward = -1
+                    done = True
+                    break
+            elif action == 1:  # Sell
+                if cumulative_return <= -tp_barrier:
+                    reward = 3
+                    done = True
+                    break
+                elif cumulative_return >= sl_barrier:
+                    reward = -1
+                    done = True
+                    break
+            elif action == 2:  # Hold
+                reward = 0 if abs(future_log_return) < 0.03 * past_std else -0.01
+                done = True
+                break
+            
+            steps_ahead += 1
         
-        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}")  # Debug action distribution
+        if not done:
+            reward = -1 if action in [0, 1] else 0
+            done = True
+        
+        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
             self.reward_history.pop(0)
         
-        self.current_step += 1
+        self.current_step += steps_ahead + 1
         
         avg_reward = np.mean(self.reward_history) if self.reward_history else 0
-        done = (len(self.reward_history) == self.early_stop_patience and avg_reward < self.early_stop_threshold) or \
+        done = done or (len(self.reward_history) == self.early_stop_patience and avg_reward < self.early_stop_threshold) or \
                (self.current_step - self.start_step >= self.max_steps) or \
                (self.current_step >= len(self.data) - 1)
         
@@ -187,7 +213,7 @@ if __name__ == "__main__":
     exp2 = data['detrended_log_return'].ewm(span=26, adjust=False).mean()
     data['macd'] = exp1 - exp2
     data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-    data['macd_diff'] = data['macd'] - data['macd_signal']  # Fixed: use data, not test_data
+    data['macd_diff'] = data['macd'] - data['macd_signal']
     
     data.dropna(inplace=True)
     
