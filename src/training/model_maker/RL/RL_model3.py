@@ -15,7 +15,7 @@ class EntropyDecayCallback(BaseCallback):
         super(EntropyDecayCallback, self).__init__(verbose)
         self.initial_ent_coef = 0.5
         self.final_ent_coef = 0.3
-        self.total_timesteps = 5000000
+        self.total_timesteps = 500000
 
     def _on_step(self):
         progress = self.num_timesteps / self.total_timesteps
