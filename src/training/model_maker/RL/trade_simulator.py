@@ -33,7 +33,7 @@ test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
 # Clean NaN or inf values
 test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
 
-# Select training columns (updated to include detrended_log_return)
+# Select training columns
 test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
                        'cos_time', 'sin_time', 'eurusd_close', 'detrended_log_return',
                        'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
@@ -58,17 +58,17 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=3, tp_factor=9):
+    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=1, tp_factor=3):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
-        self.risk_percentage = risk_percentage  # 0.5%
+        self.risk_percentage = risk_percentage
         self.min_position_size = min_position_size
         self.max_position_size = max_position_size
         self.spread_pips = spread_pips
         self.slippage_std_pips = slippage_std_pips
         self.penalty = penalty
-        self.sl_factor = sl_factor  # SL multiplier
-        self.tp_factor = tp_factor  # TP multiplier for 3:1 ratio
+        self.sl_factor = sl_factor  # Adjusted to match training (0.03 * past_std)
+        self.tp_factor = tp_factor  # Adjusted to match training (0.09 * past_std)
         self.balance = initial_balance
         self.equity_curve = []
         self.trades = []
@@ -97,7 +97,7 @@ class TradingSimulator:
         return obs
 
     def step(self):
-        if self.current_step >= len(self.data) or self.balance < 0.2 * self.initial_balance:  # Kill switch at 20%
+        if self.current_step >= len(self.data) or self.balance < 0.2 * self.initial_balance:
             return False
 
         obs = self.get_observation()
@@ -110,7 +110,7 @@ class TradingSimulator:
         with torch.no_grad():
             dist = model.policy.get_distribution(obs_tensor)
             probs = dist.distribution.probs.cpu().numpy()[0]  # Probabilities for [Buy, Sell, Hold]
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs, deterministic=False)  # Stochastic prediction
 
         print(f"Action: {action}, Probabilities: Buy={probs[0]:.4f}, Sell={probs[1]:.4f}, Hold={probs[2]:.4f}")
 
@@ -137,8 +137,8 @@ class TradingSimulator:
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns)
-        self.sl_pips = self.sl_factor * past_std * 10000  # e.g., 15 pips if past_std ≈ 0.0005
-        self.tp_pips = self.tp_factor * past_std * 10000  # e.g., 45 pips for 3:1 ratio
+        self.sl_pips = self.sl_factor * past_std * 10000  # Matches training 0.03 * past_std
+        self.tp_pips = self.tp_factor * past_std * 10000  # Matches training 0.09 * past_std
         
         if direction == 'buy':
             self.tp_price = self.entry_price + (self.tp_pips / 10000) - (self.spread_pips / 10000)
@@ -202,11 +202,11 @@ simulator = TradingSimulator(
     risk_percentage=0.005,
     min_position_size=0.01,
     max_position_size=5.0,
-    spread_pips=0,  # Kept at 0 for consistency with your latest run
+    spread_pips=0,
     slippage_std_pips=0.0,
     penalty=0,
-    sl_factor=3,
-    tp_factor=9  # 3:1 ratio
+    sl_factor=1,  # Adjusted to match training (0.03 * past_std scaled)
+    tp_factor=3   # Adjusted to match training (0.09 * past_std scaled)
 )
 while simulator.step():
     pass
@@ -233,6 +233,10 @@ total_pips = sum(trade['pips_gained'] for trade in simulator.trades)
 print(f"TP Hits: {num_tp}, SL Hits: {num_sl}")
 print(f"Average TP Pips: {avg_tp_pips:.2f}, Average SL Pips: {avg_sl_pips:.2f}")
 print(f"Total Pips Gained: {total_pips:.2f}")
+
+# Action distribution
+actions = [trade['direction'] for trade in simulator.trades]
+print(f"Buy Trades: {actions.count('buy')}, Sell Trades: {actions.count('sell')}")
 
 # Plot equity curve
 plt.plot(simulator.equity_curve)
