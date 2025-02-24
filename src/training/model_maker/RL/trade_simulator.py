@@ -14,15 +14,18 @@ data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
-# Add necessary features
-test_data['log_return_std'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).std()
-test_data['log_return_mean'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
-test_data['log_return_std_long'] = test_data['eurusd_log_return'].rolling(window=50, min_periods=1).std()
-test_data['bb_middle'] = test_data['eurusd_log_return'].rolling(window=15, min_periods=1).mean()
+# Detrend the log return (same as training)
+test_data['detrended_log_return'] = test_data['eurusd_log_return'] - test_data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
+
+# Add necessary features using detrended log return
+test_data['log_return_std'] = test_data['detrended_log_return'].rolling(window=15, min_periods=1).std()
+test_data['log_return_mean'] = test_data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
+test_data['log_return_std_long'] = test_data['detrended_log_return'].rolling(window=50, min_periods=1).std()
+test_data['bb_middle'] = test_data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
 test_data['bb_upper'] = test_data['bb_middle'] + 2 * test_data['log_return_std']
 test_data['bb_lower'] = test_data['bb_middle'] - 2 * test_data['log_return_std']
-exp1 = test_data['eurusd_log_return'].ewm(span=12, adjust=False).mean()
-exp2 = test_data['eurusd_log_return'].ewm(span=26, adjust=False).mean()
+exp1 = test_data['detrended_log_return'].ewm(span=12, adjust=False).mean()
+exp2 = test_data['detrended_log_return'].ewm(span=26, adjust=False).mean()
 test_data['macd'] = exp1 - exp2
 test_data['macd_signal'] = test_data['macd'].ewm(span=9, adjust=False).mean()
 test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
@@ -30,9 +33,9 @@ test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
 # Clean NaN or inf values
 test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
 
-# Select training columns
+# Select training columns (updated to include detrended_log_return)
 test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
-                       'cos_time', 'sin_time', 'eurusd_close', 'eurusd_log_return',
+                       'cos_time', 'sin_time', 'eurusd_close', 'detrended_log_return',
                        'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
                        'Normalized_eurusd_audusd_Coin', 'Normalized_eurusd_gbpjpy_Coin', 'Normalized_eurusd_nzdjpy_Coin',
                        'Normalized_eurusd_usdcad_Coin', 'Normalized_eurusd_usdchf_Coin', 'Normalized_eurusd_usdhkd_Coin',
@@ -55,10 +58,10 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=2, slippage_std_pips=0.5, penalty=0, sl_factor=3, tp_factor=9):
+    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=3, tp_factor=9):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
-        self.risk_percentage = risk_percentage  # Reduced to 0.5%
+        self.risk_percentage = risk_percentage  # 0.5%
         self.min_position_size = min_position_size
         self.max_position_size = max_position_size
         self.spread_pips = spread_pips
@@ -99,8 +102,18 @@ class TradingSimulator:
 
         obs = self.get_observation()
         print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
-        action, _ = model.predict(obs, deterministic=True)  # Use deterministic for consistency
-        print('action:',action)
+
+        # Convert observation to tensor and move to device
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
+
+        # Get action distribution and probabilities
+        with torch.no_grad():
+            dist = model.policy.get_distribution(obs_tensor)
+            probs = dist.distribution.probs.cpu().numpy()[0]  # Probabilities for [Buy, Sell, Hold]
+            action, _ = model.predict(obs, deterministic=True)
+
+        print(f"Action: {action}, Probabilities: Buy={probs[0]:.4f}, Sell={probs[1]:.4f}, Hold={probs[2]:.4f}")
+
         if self.active_trade is None:
             if action == 0:  # Buy
                 self.enter_trade('buy')
@@ -122,7 +135,7 @@ class TradingSimulator:
         slippage = np.random.normal(0, self.slippage_std_pips) / 10000
         self.entry_price = current_price + slippage if direction == 'buy' else current_price - slippage
         
-        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['eurusd_log_return'].values
+        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns)
         self.sl_pips = self.sl_factor * past_std * 10000  # e.g., 15 pips if past_std ≈ 0.0005
         self.tp_pips = self.tp_factor * past_std * 10000  # e.g., 45 pips for 3:1 ratio
@@ -189,7 +202,7 @@ simulator = TradingSimulator(
     risk_percentage=0.005,
     min_position_size=0.01,
     max_position_size=5.0,
-    spread_pips=0,
+    spread_pips=0,  # Kept at 0 for consistency with your latest run
     slippage_std_pips=0.0,
     penalty=0,
     sl_factor=3,
