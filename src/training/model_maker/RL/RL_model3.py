@@ -67,7 +67,7 @@ class ForexEnv(gym.Env):
         reward = 0
         done = False
         steps_ahead = 0
-        max_steps = 50
+        max_steps = 200
         
         while steps_ahead < max_steps and self.current_step + steps_ahead + 1 < len(self.data):
             cumulative_return = sum(self.data.iloc[self.current_step + 1:self.current_step + steps_ahead + 2]['detrended_log_return'])
@@ -98,7 +98,7 @@ class ForexEnv(gym.Env):
             steps_ahead += 1
         
         if not done:
-            reward = -1 if action in [0, 1] else 0
+            reward = -0.5 if action in [0, 1] else 0
             done = True
         
         print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
