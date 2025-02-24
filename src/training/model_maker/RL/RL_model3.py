@@ -9,14 +9,14 @@ import logging
 import torch
 
 # Configure logging
-logging.basicConfig(filename='training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(filename='/mnt/training_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class EntropyDecayCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(EntropyDecayCallback, self).__init__(verbose)
         self.initial_ent_coef = 0.5
-        self.final_ent_coef = 0.1  # Increased to maintain exploration
-        self.total_timesteps = 3000000
+        self.final_ent_coef = 0.3  # Increased for more exploration
+        self.total_timesteps = 5000000  # Extended training
 
     def _on_step(self):
         progress = self.num_timesteps / self.total_timesteps
@@ -50,7 +50,9 @@ class ForexEnv(gym.Env):
     def _get_observation(self):
         start = max(0, self.current_step - 14)
         obs = self.data.iloc[start:self.current_step+1].values
-        obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
+        if len(obs) < 15:
+            obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
+        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)  # Normalize
         obs = obs.flatten().astype(np.float32)
         return obs
 
@@ -60,19 +62,21 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        upper_barrier = 0.09 * past_std  # Adjusted for 3:1 ratio
+        upper_barrier = 0.09 * past_std
         lower_barrier = -0.09 * past_std
         
         future_log_return = self.data.iloc[self.current_step + 1]['detrended_log_return']
         
         if action == 0:  # Buy
-            reward = 3 if future_log_return > upper_barrier else -1  # Symmetric reward
+            reward = 3 if future_log_return > upper_barrier else -1
             self.trades += 1
         elif action == 1:  # Sell
-            reward = 3 if future_log_return < lower_barrier else -1  # Symmetric reward
+            reward = 3 if future_log_return < lower_barrier else -1
             self.trades += 1
         elif action == 2:  # Hold
             reward = 0 if abs(future_log_return) < 0.03 * past_std else -0.01
+        
+        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}")  # Debug action distribution
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -103,25 +107,23 @@ class ForexTradingModel:
         
         policy_kwargs = dict(net_arch=[512, 512, 256])
         self.model = PPO("MlpPolicy", train_env, verbose=1,
-                         learning_rate=0.001,
-                         n_steps=1024,
+                         learning_rate=0.003,  # Increased for better convergence
+                         n_steps=2048,  # Doubled for more updates
                          batch_size=256,
                          n_epochs=10,
                          gamma=0.94,
                          clip_range=0.3,
-                         ent_coef=0.5,  # Initial value, decayed via callback
+                         ent_coef=0.5,
                          device=device,
                          policy_kwargs=policy_kwargs)
         
-        # Callbacks for entropy decay, early stopping, and periodic saving
         entropy_callback = EntropyDecayCallback()
         eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
         checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
-        self.model.learn(total_timesteps=3000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
+        self.model.learn(total_timesteps=5000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
-        # Save the final model
-        model_save_path = "ppo_forex_model_v2.zip"
+        model_save_path = "/mnt/ppo_forex_model_v3.zip"
         self.model.save(model_save_path)
         print(f"Model saved to {model_save_path}")
         
@@ -171,12 +173,10 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')
+    data = pd.read_csv('/mnt/coin_df6.csv')
     
-    # Detrend the log return
     data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
     
-    # Add other features
     data['log_return_std'] = data['detrended_log_return'].rolling(window=15, min_periods=1).std()
     data['log_return_mean'] = data['detrended_log_return'].rolling(window=15, min_periods=1).mean()
     data['log_return_std_long'] = data['detrended_log_return'].rolling(window=50, min_periods=1).std()
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     exp2 = data['detrended_log_return'].ewm(span=26, adjust=False).mean()
     data['macd'] = exp1 - exp2
     data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-    data['macd_diff'] = data['macd'] - data['macd_signal']
+    data['macd_diff'] = data['macd'] - test_data['macd_signal']
     
     data.dropna(inplace=True)
     
@@ -215,8 +215,8 @@ if __name__ == "__main__":
                  'senkou_span_a', 'senkou_span_b', 'chikou_span']]
     
     trader = ForexTradingModel(data)
-    train_split = int(len(data) * 0.7)  # 70% for training
-    val_split = int(len(data) * 0.85)   # 15% for validation (70-85%)
+    train_split = int(len(data) * 0.7)
+    val_split = int(len(data) * 0.85)
     train_data = data.iloc[:train_split]
     val_data = data.iloc[train_split:val_split]
     
