@@ -115,8 +115,8 @@ class ForexTradingModel:
         
         # Callbacks for entropy decay, early stopping, and periodic saving
         entropy_callback = EntropyDecayCallback()
-        eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/best_model', verbose=1)
-        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/checkpoints', name_prefix='ppo_forex', verbose=1)
+        eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
         self.model.learn(total_timesteps=3000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
