@@ -14,8 +14,8 @@ class EntropyDecayCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(EntropyDecayCallback, self).__init__(verbose)
         self.initial_ent_coef = 0.5
-        self.final_ent_coef = 0.3
-        self.total_timesteps = 500000
+        self.final_ent_coef = 0.4  # Adjusted
+        self.total_timesteps = 5000000
 
     def _on_step(self):
         progress = self.num_timesteps / self.total_timesteps
@@ -35,7 +35,7 @@ class ForexEnv(gym.Env):
         self.early_stop_patience = 500
         self.early_stop_threshold = -0.5
         num_features = self.data.shape[1]
-        self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(15 * num_features,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-5.0, high=5.0, shape=(30 * num_features,), dtype=np.float32)
         self.action_space = spaces.Discrete(3)  # [Buy, Sell, Hold]
 
     def reset(self):
@@ -47,10 +47,10 @@ class ForexEnv(gym.Env):
         return self._get_observation()
 
     def _get_observation(self):
-        start = max(0, self.current_step - 14)
+        start = max(0, self.current_step - 29)  # 30 steps
         obs = self.data.iloc[start:self.current_step+1].values
-        if len(obs) < 15:
-            obs = np.pad(obs, ((15 - obs.shape[0], 0), (0, 0)), mode='constant')
+        if len(obs) < 30:
+            obs = np.pad(obs, ((30 - len(obs), 0), (0, 0)), mode='constant')
         obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)
         obs = obs.flatten().astype(np.float32)
         return obs
@@ -60,8 +60,8 @@ class ForexEnv(gym.Env):
             return np.zeros(self.observation_space.shape), 0, True, {}
         
         entry_price = self.data.iloc[self.current_step]['eurusd_close']
-        sl_pips = 15  # ~15 pips
-        tp_pips = 45  # ~45 pips
+        sl_pips = 5   # Adjusted
+        tp_pips = 15  # Adjusted, 3:1 ratio
         pip_value = 0.0001
         
         reward = 0
@@ -99,10 +99,10 @@ class ForexEnv(gym.Env):
             steps_ahead += 1
         
         if not done:
-            reward = -0.5 if action in [0, 1] else 0
+            reward = 0 if action in [0, 1] else 0  # Neutral for unresolved
             done = True
         
-      #  print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
+        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -133,10 +133,10 @@ class ForexTradingModel:
         
         policy_kwargs = dict(net_arch=[512, 512, 256])
         self.model = PPO("MlpPolicy", train_env, verbose=1,
-                         learning_rate=0.003,
+                         learning_rate=0.001,  # Reduced
                          n_steps=2048,
                          batch_size=256,
-                         n_epochs=10,
+                         n_epochs=20,  # Increased
                          gamma=0.94,
                          clip_range=0.3,
                          ent_coef=0.5,
@@ -145,9 +145,9 @@ class ForexTradingModel:
         
         entropy_callback = EntropyDecayCallback()
         eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
-        checkpoint_callback = CheckpointCallback(save_freq=50000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
-        self.model.learn(total_timesteps=500000, callback=[entropy_callback, eval_callback, checkpoint_callback])
+        self.model.learn(total_timesteps=5000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
         model_save_path = "/mnt/ppo_forex_model_v3.zip"
         self.model.save(model_save_path)
