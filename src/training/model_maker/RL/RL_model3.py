@@ -59,10 +59,10 @@ class ForexEnv(gym.Env):
         if self.current_step >= len(self.data) - 1:
             return np.zeros(self.observation_space.shape), 0, True, {}
         
-        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
-        past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        sl_barrier = 0.0015  # ~15 pips
-        tp_barrier = 0.0045  # ~45 pips
+        entry_price = self.data.iloc[self.current_step]['eurusd_close']
+        sl_pips = 15  # ~15 pips
+        tp_pips = 45  # ~45 pips
+        pip_value = 0.0001
         
         reward = 0
         done = False
@@ -70,23 +70,24 @@ class ForexEnv(gym.Env):
         max_steps = 200
         
         while steps_ahead < max_steps and self.current_step + steps_ahead + 1 < len(self.data):
-            cumulative_return = sum(self.data.iloc[self.current_step + 1:self.current_step + steps_ahead + 2]['detrended_log_return'])
+            current_price = self.data.iloc[self.current_step + steps_ahead + 1]['eurusd_close']
+            price_change_pips = (current_price - entry_price) / pip_value
             
             if action == 0:  # Buy
-                if cumulative_return >= tp_barrier:
+                if price_change_pips >= tp_pips:
                     reward = 3
                     done = True
                     break
-                elif cumulative_return <= -sl_barrier:
+                elif price_change_pips <= -sl_pips:
                     reward = -1
                     done = True
                     break
             elif action == 1:  # Sell
-                if cumulative_return <= -tp_barrier:
+                if price_change_pips <= -tp_pips:
                     reward = 3
                     done = True
                     break
-                elif cumulative_return >= sl_barrier:
+                elif price_change_pips >= sl_pips:
                     reward = -1
                     done = True
                     break
@@ -144,7 +145,7 @@ class ForexTradingModel:
         
         entropy_callback = EntropyDecayCallback()
         eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
-        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=50000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
         self.model.learn(total_timesteps=500000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
