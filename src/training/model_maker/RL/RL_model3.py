@@ -102,7 +102,7 @@ class ForexEnv(gym.Env):
             reward = -0.5 if action in [0, 1] else 0
             done = True
         
-        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
+      #  print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
