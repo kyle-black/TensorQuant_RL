@@ -61,16 +61,15 @@ class ForexEnv(gym.Env):
         
         past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
         past_std = np.std(past_log_returns) if len(past_log_returns) > 0 else 1e-8
-        sl_barrier = 0.03 * past_std
-        tp_barrier = 0.09 * past_std
+        sl_barrier = 0.0015  # ~15 pips
+        tp_barrier = 0.0045  # ~45 pips
         
         reward = 0
         done = False
         steps_ahead = 0
-        max_steps = 10
+        max_steps = 20
         
         while steps_ahead < max_steps and self.current_step + steps_ahead + 1 < len(self.data):
-            future_log_return = self.data.iloc[self.current_step + steps_ahead + 1]['detrended_log_return']
             cumulative_return = sum(self.data.iloc[self.current_step + 1:self.current_step + steps_ahead + 2]['detrended_log_return'])
             
             if action == 0:  # Buy
@@ -92,7 +91,7 @@ class ForexEnv(gym.Env):
                     done = True
                     break
             elif action == 2:  # Hold
-                reward = 0 if abs(future_log_return) < 0.03 * past_std else -0.01
+                reward = 0 if abs(self.data.iloc[self.current_step + 1]['detrended_log_return']) < 0.001 else -0.01
                 done = True
                 break
             
@@ -145,9 +144,9 @@ class ForexTradingModel:
         
         entropy_callback = EntropyDecayCallback()
         eval_callback = EvalCallback(val_env, eval_freq=10000, n_eval_episodes=5, best_model_save_path='/mnt/checkpoints/best_model', verbose=1)
-        checkpoint_callback = CheckpointCallback(save_freq=100000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
+        checkpoint_callback = CheckpointCallback(save_freq=500000, save_path='/mnt/checkpoints/', name_prefix='ppo_forex', verbose=1)
         
-        self.model.learn(total_timesteps=100000, callback=[entropy_callback, eval_callback, checkpoint_callback])
+        self.model.learn(total_timesteps=500000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
         model_save_path = "/mnt/ppo_forex_model_v3.zip"
         self.model.save(model_save_path)
