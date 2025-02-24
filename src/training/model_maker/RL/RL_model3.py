@@ -173,7 +173,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('/mnt/coin_df6.csv')
+    data = pd.read_csv('coin_df6.csv')
     
     data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
     
