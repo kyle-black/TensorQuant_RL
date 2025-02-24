@@ -56,6 +56,9 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'Normalized_usdhkd_usdjpy_Coin', 'RSI', '%K', '%D', 'direction', 'tenkan_sen', 'kijun_sen',
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
+# Print test set trend
+print("Test set mean detrended_log_return:", test_data['detrended_log_return'].mean())
+
 class TradingSimulator:
     def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=3, tp_factor=9):
         self.data = data.reset_index(drop=True)
@@ -90,7 +93,6 @@ class TradingSimulator:
         obs = self.data.iloc[start:self.current_step+1].values
         if len(obs) < 15:
             obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant')
-        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)
         obs = obs.flatten().astype(np.float32)
         if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
             obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -109,8 +111,8 @@ class TradingSimulator:
             dist = model.policy.get_distribution(obs_tensor)
             probs = dist.distribution.probs.cpu().numpy()[0]
             action, _ = model.predict(obs, deterministic=False)
-            if probs[1] - probs[0] < 0.10:  # Tightened to 10%
-                action = np.random.choice([0, 1, 2], p=probs)  # Include all actions
+            if probs[1] - probs[0] < 0.05:
+                action = np.random.choice([0, 1, 2], p=probs)
 
         print(f"Action: {action}, Probabilities: Buy={probs[0]:.4f}, Sell={probs[1]:.4f}, Hold={probs[2]:.4f}")
 
