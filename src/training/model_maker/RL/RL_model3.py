@@ -14,7 +14,7 @@ class EntropyDecayCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(EntropyDecayCallback, self).__init__(verbose)
         self.initial_ent_coef = 0.5
-        self.final_ent_coef = 0.4  # Adjusted
+        self.final_ent_coef = 0.4
         self.total_timesteps = 5000000
 
     def _on_step(self):
@@ -32,6 +32,7 @@ class ForexEnv(gym.Env):
         self.start_step = 0
         self.reward_history = []
         self.trades = 0
+        self.action_counts = {0: 0, 1: 0, 2: 0}  # Track actions
         self.early_stop_patience = 500
         self.early_stop_threshold = -0.5
         num_features = self.data.shape[1]
@@ -40,7 +41,7 @@ class ForexEnv(gym.Env):
 
     def reset(self):
         upper_bound = len(self.data) - self.max_steps
-        self.start_step = np.random.randint(15, upper_bound) if upper_bound > 15 else 15
+        self.start_step = np.random.randint(29, upper_bound) if upper_bound > 29 else 29
         self.current_step = self.start_step
         self.reward_history = []
         self.trades = 0
@@ -60,8 +61,8 @@ class ForexEnv(gym.Env):
             return np.zeros(self.observation_space.shape), 0, True, {}
         
         entry_price = self.data.iloc[self.current_step]['eurusd_close']
-        sl_pips = 5   # Adjusted
-        tp_pips = 15  # Adjusted, 3:1 ratio
+        sl_pips = 2   # Adjusted for multi-step trades
+        tp_pips = 6   # 3:1 ratio
         pip_value = 0.0001
         
         reward = 0
@@ -92,6 +93,14 @@ class ForexEnv(gym.Env):
                     done = True
                     break
             elif action == 2:  # Hold
+                if price_change_pips >= tp_pips or price_change_pips <= -tp_pips:
+                    reward = -0.5  # Penalize missed TP
+                    done = True
+                    break
+                elif price_change_pips <= -sl_pips or price_change_pips >= sl_pips:
+                    reward = -0.1  # Penalize missed SL
+                    done = True
+                    break
                 reward = 0 if abs(self.data.iloc[self.current_step + 1]['detrended_log_return']) < 0.001 else -0.01
                 done = True
                 break
@@ -99,10 +108,11 @@ class ForexEnv(gym.Env):
             steps_ahead += 1
         
         if not done:
-            reward = 0 if action in [0, 1] else 0  # Neutral for unresolved
+            reward = 0 if action in [0, 1] else 0
             done = True
         
-        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}")
+        self.action_counts[action] += 1
+        print(f"Step {self.current_step}, Action: {action}, Reward: {reward}, Steps Ahead: {steps_ahead}, Action Counts: {self.action_counts}")
         
         self.reward_history.append(reward)
         if len(self.reward_history) > self.early_stop_patience:
@@ -133,10 +143,10 @@ class ForexTradingModel:
         
         policy_kwargs = dict(net_arch=[512, 512, 256])
         self.model = PPO("MlpPolicy", train_env, verbose=1,
-                         learning_rate=0.001,  # Reduced
+                         learning_rate=0.001,
                          n_steps=2048,
-                         batch_size=256,
-                         n_epochs=20,  # Increased
+                         batch_size=128,  # Adjusted for finer updates
+                         n_epochs=30,  # Increased for better value fit
                          gamma=0.94,
                          clip_range=0.3,
                          ent_coef=0.5,
@@ -149,7 +159,7 @@ class ForexTradingModel:
         
         self.model.learn(total_timesteps=5000000, callback=[entropy_callback, eval_callback, checkpoint_callback])
         
-        model_save_path = "/mnt/ppo_forex_model_v3.zip"
+        model_save_path = "/mnt/ppo_forex_model_v4.zip"  # New version
         self.model.save(model_save_path)
         print(f"Model saved to {model_save_path}")
         
@@ -199,7 +209,7 @@ class ForexTradingModel:
         }
 
 if __name__ == "__main__":
-    data = pd.read_csv('coin_df6.csv')
+    data = pd.read_csv('/mnt/coin_df6.csv')
     
     data['detrended_log_return'] = data['eurusd_log_return'] - data['eurusd_log_return'].rolling(window=50, min_periods=1).mean()
     
