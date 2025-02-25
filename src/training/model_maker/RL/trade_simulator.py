@@ -6,7 +6,7 @@ import random
 import matplotlib.pyplot as plt
 
 # Load the trained model on CPU
-model_path = "ppo_forex_model_v3.zip"  # Updated to v3
+model_path = "ppo_forex_model_v4.zip"  # Updated to v3
 model = PPO.load(model_path, device='cpu')
 
 # Load and prepare test data (last 15%)
