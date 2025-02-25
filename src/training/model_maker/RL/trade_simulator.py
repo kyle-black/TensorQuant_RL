@@ -6,11 +6,11 @@ import random
 import matplotlib.pyplot as plt
 
 # Load the trained model on CPU
-model_path = "ppo_forex_model_v2.zip"  # Update with your actual model path
+model_path = "ppo_forex_model_v3.zip"  # Updated to v3
 model = PPO.load(model_path, device='cpu')
 
 # Load and prepare test data (last 15%)
-data = pd.read_csv('coin_df6.csv')  # Update with your actual data path
+data = pd.read_csv('coin_df6.csv')  # Update with your actual path
 split = int(len(data) * 0.85)
 test_data = data.iloc[split:].copy()
 
@@ -32,7 +32,7 @@ test_data['macd_diff'] = test_data['macd'] - test_data['macd_signal']
 
 test_data = test_data.replace([np.inf, -np.inf], np.nan).dropna()
 
-# Select training columns
+# Select training columns (same as training)
 test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long', 'bb_upper', 'bb_lower', 'macd', 'macd_signal', 'macd_diff',
                        'cos_time', 'sin_time', 'eurusd_close', 'detrended_log_return',
                        'Normalized_eurusd_eurjpy_Coin', 'Normalized_eurusd_eurgbp_Coin', 'Normalized_eurusd_audjpy_Coin',
@@ -56,11 +56,12 @@ test_data = test_data[['log_return_mean', 'log_return_std', 'log_return_std_long
                        'Normalized_usdhkd_usdjpy_Coin', 'RSI', '%K', '%D', 'direction', 'tenkan_sen', 'kijun_sen',
                        'senkou_span_a', 'senkou_span_b', 'chikou_span']]
 
-# Print test set trend
+# Print test set trend and step size
 print("Test set mean detrended_log_return:", test_data['detrended_log_return'].mean())
+print("Avg pip move/step:", (test_data['eurusd_close'].diff().abs() / 0.0001).mean())
 
 class TradingSimulator:
-    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_factor=3, tp_factor=9):
+    def __init__(self, data, initial_balance=10000, risk_percentage=0.005, min_position_size=0.01, max_position_size=5.0, spread_pips=0, slippage_std_pips=0.0, penalty=0, sl_pips=5, tp_pips=15):
         self.data = data.reset_index(drop=True)
         self.initial_balance = initial_balance
         self.risk_percentage = risk_percentage
@@ -69,19 +70,17 @@ class TradingSimulator:
         self.spread_pips = spread_pips
         self.slippage_std_pips = slippage_std_pips
         self.penalty = penalty
-        self.sl_factor = sl_factor
-        self.tp_factor = tp_factor
+        self.sl_pips = sl_pips  # Fixed from training
+        self.tp_pips = tp_pips  # Fixed from training
         self.balance = initial_balance
         self.equity_curve = []
         self.trades = []
-        self.current_step = 15
+        self.current_step = 29  # Adjusted for 30-step look-back
         self.active_trade = None
         self.entry_price = None
         self.tp_price = None
         self.sl_price = None
         self.position_size = self.calculate_position_size()
-        self.sl_pips = None
-        self.tp_pips = None
 
     def calculate_position_size(self):
         target_risk_dollars = self.risk_percentage * self.balance
@@ -89,10 +88,11 @@ class TradingSimulator:
         return max(self.min_position_size, min(self.max_position_size, position_size))
 
     def get_observation(self):
-        start = max(0, self.current_step - 14)
+        start = max(0, self.current_step - 29)  # 30 steps to match training
         obs = self.data.iloc[start:self.current_step+1].values
-        if len(obs) < 15:
-            obs = np.pad(obs, ((15 - len(obs), 0), (0, 0)), mode='constant')
+        if len(obs) < 30:
+            obs = np.pad(obs, ((30 - len(obs), 0), (0, 0)), mode='constant', constant_values=0)
+        obs = (obs - obs.mean(axis=0)) / (obs.std(axis=0) + 1e-8)  # Normalize as in training
         obs = obs.flatten().astype(np.float32)
         if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
             obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -104,7 +104,6 @@ class TradingSimulator:
 
         obs = self.get_observation()
         print(f"Step {self.current_step}, Obs shape: {obs.shape}, Any NaN: {np.any(np.isnan(obs))}")
-        print(f"Obs sample: {obs[:5]}")
 
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
         with torch.no_grad():
@@ -136,11 +135,6 @@ class TradingSimulator:
         current_price = self.data.iloc[self.current_step]['eurusd_close']
         slippage = np.random.normal(0, self.slippage_std_pips) / 10000
         self.entry_price = current_price + slippage if direction == 'buy' else current_price - slippage
-        
-        past_log_returns = self.data.iloc[max(0, self.current_step - 14):self.current_step+1]['detrended_log_return'].values
-        past_std = np.std(past_log_returns)
-        self.sl_pips = self.sl_factor * past_std * 10000
-        self.tp_pips = self.tp_factor * past_std * 10000
         
         if direction == 'buy':
             self.tp_price = self.entry_price + (self.tp_pips / 10000) - (self.spread_pips / 10000)
@@ -207,8 +201,8 @@ simulator = TradingSimulator(
     spread_pips=0,
     slippage_std_pips=0.0,
     penalty=0,
-    sl_factor=3,
-    tp_factor=9
+    sl_pips=5,  # Match training
+    tp_pips=15  # Match training
 )
 while simulator.step():
     pass
